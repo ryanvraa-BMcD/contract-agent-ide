@@ -38,6 +38,17 @@ export async function getProjectWorkspace(projectId: string) {
         orderBy: { updatedAt: "desc" },
         include: {
           activeVersion: true,
+          versions: {
+            orderBy: { versionNumber: "desc" },
+            select: {
+              id: true,
+              versionNumber: true,
+              createdAt: true,
+              sourceLabel: true,
+              createdBy: true,
+              plainText: true,
+            },
+          },
         },
       },
       chatThreads: {

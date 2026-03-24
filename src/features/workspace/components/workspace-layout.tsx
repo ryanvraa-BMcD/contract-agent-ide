@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChatPanel } from "@/src/features/chat/components/chat-panel";
+import { VersionHistoryCompare } from "@/src/features/compare/components/version-history-compare";
 import { DocumentSidebar } from "@/src/features/documents/components/document-sidebar";
 import { ReviewPanel } from "@/src/features/review/components/review-panel";
 import type { ReviewProposal } from "@/src/features/review/types";
@@ -17,6 +18,14 @@ type WorkspaceDocument = {
   activeVersion: {
     versionNumber: number;
   } | null;
+  versions: {
+    id: string;
+    versionNumber: number;
+    createdAt: string;
+    sourceLabel: string | null;
+    createdBy: string | null;
+    plainText: string;
+  }[];
 };
 
 type WorkspaceMessage = {
@@ -94,17 +103,23 @@ export function WorkspaceLayout({
             <div className="border-b border-slate-200 p-5">
               <h1 className="text-xl font-semibold text-slate-900">{projectName}</h1>
               <p className="mt-1 text-sm text-slate-600">
-                Document viewer/editor placeholder. Connect document selection and rich editor in a
-                follow-up iteration.
+                Document review workspace with version history and comparison tools.
               </p>
             </div>
             <div className="p-5">
               <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
-                Center pane placeholder for legal document rendering, clause navigation, diff
-                compare mode, and inline edit proposals.
+                Compare selected document versions below. Focus is on clarity and lineage for
+                legal review workflows.
               </div>
             </div>
           </div>
+          <VersionHistoryCompare
+            documents={documents.map((document) => ({
+              id: document.id,
+              title: document.title,
+              versions: document.versions,
+            }))}
+          />
           <ReviewPanel proposals={editProposals} documentTitleById={documentTitleById} />
         </main>
         <ChatPanel

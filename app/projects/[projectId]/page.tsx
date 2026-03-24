@@ -64,6 +64,14 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         activeVersion: document.activeVersion
           ? { versionNumber: document.activeVersion.versionNumber }
           : null,
+        versions: document.versions.map((version) => ({
+          id: version.id,
+          versionNumber: version.versionNumber,
+          createdAt: version.createdAt.toISOString(),
+          sourceLabel: version.sourceLabel,
+          createdBy: version.createdBy,
+          plainText: version.plainText || "",
+        })),
       }))}
       threadId={thread?.id ?? null}
       initialMessages={(thread?.messages || []).map((message) => ({
