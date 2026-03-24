@@ -38,8 +38,10 @@ export async function sendChatMessageStub(input: {
   content: string;
   mode: string;
   threadId?: string;
+  selectedDocumentIds?: string[];
 }) {
   const mode = workspaceModeSchema.parse(input.mode);
+  const selectedDocumentIds = input.selectedDocumentIds ?? [];
   const thread = await getOrCreateThread(input.projectId, input.threadId);
 
   return prisma.$transaction(async (tx) => {
@@ -58,6 +60,7 @@ export async function sendChatMessageStub(input: {
         mode: modeMap[mode],
         status: AgentRunStatus.RUNNING,
         inputText: input.content,
+        selectedDocumentIds,
       },
     });
 

@@ -22,6 +22,7 @@ export async function POST(request: Request, context: ChatRouteContext) {
     content: parsed.data.content,
     mode: parsed.data.mode,
     threadId: parsed.data.threadId,
+    selectedDocumentIds: parsed.data.selectedDocumentIds,
   });
 
   return NextResponse.json(result);

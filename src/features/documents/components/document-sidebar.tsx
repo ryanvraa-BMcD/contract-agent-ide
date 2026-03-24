@@ -17,6 +17,10 @@ type SidebarDocument = {
 type DocumentSidebarProps = {
   projectId: string;
   documents: SidebarDocument[];
+  selectedDocumentIds: string[];
+  onToggleDocumentSelection: (documentId: string) => void;
+  onSelectAllDocuments: () => void;
+  onClearSelectedDocuments: () => void;
 };
 
 function formatSize(bytes: number) {
@@ -25,10 +29,19 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function DocumentSidebar({ projectId, documents }: DocumentSidebarProps) {
+export function DocumentSidebar({
+  projectId,
+  documents,
+  selectedDocumentIds,
+  onToggleDocumentSelection,
+  onSelectAllDocuments,
+  onClearSelectedDocuments,
+}: DocumentSidebarProps) {
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const selectedSet = new Set(selectedDocumentIds);
+  const selectedCount = selectedDocumentIds.length;
 
   const handleUpload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -70,6 +83,28 @@ export function DocumentSidebar({ projectId, documents }: DocumentSidebarProps) 
       <div className="border-b border-slate-200 p-4">
         <h2 className="text-sm font-semibold text-slate-900">Project Documents</h2>
         <p className="mt-1 text-xs text-slate-600">Upload and track contract versions.</p>
+        <div className="mt-2 rounded-md border border-slate-200 bg-white p-2">
+          <p className="text-[11px] text-slate-600">
+            In context: <span className="font-semibold text-slate-800">{selectedCount}</span> /{" "}
+            {documents.length}
+          </p>
+          <div className="mt-1 flex gap-2">
+            <button
+              type="button"
+              onClick={onSelectAllDocuments}
+              className="rounded border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={onClearSelectedDocuments}
+              className="rounded border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
         <form onSubmit={handleUpload} className="mt-3 space-y-2">
           <input
             name="file"
@@ -96,13 +131,33 @@ export function DocumentSidebar({ projectId, documents }: DocumentSidebarProps) 
         ) : (
           <ul className="space-y-2">
             {documents.map((document) => (
-              <li key={document.id} className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="truncate text-sm font-medium text-slate-900">{document.title}</p>
-                <p className="mt-1 truncate text-xs text-slate-500">{document.originalFilename}</p>
-                <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
-                  <span>v{document.activeVersion?.versionNumber ?? "?"}</span>
-                  <span>{formatSize(document.sizeBytes)}</span>
-                </div>
+              <li key={document.id}>
+                <button
+                  type="button"
+                  onClick={() => onToggleDocumentSelection(document.id)}
+                  className={`w-full rounded-lg border p-3 text-left transition ${
+                    selectedSet.has(document.id)
+                      ? "border-blue-300 bg-blue-50"
+                      : "border-slate-200 bg-white hover:border-slate-300"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="truncate text-sm font-medium text-slate-900">{document.title}</p>
+                    <span
+                      className={`mt-0.5 inline-block h-3.5 w-3.5 rounded border ${
+                        selectedSet.has(document.id)
+                          ? "border-blue-500 bg-blue-500"
+                          : "border-slate-300 bg-white"
+                      }`}
+                      aria-hidden
+                    />
+                  </div>
+                  <p className="mt-1 truncate text-xs text-slate-500">{document.originalFilename}</p>
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>v{document.activeVersion?.versionNumber ?? "?"}</span>
+                    <span>{formatSize(document.sizeBytes)}</span>
+                  </div>
+                </button>
               </li>
             ))}
           </ul>

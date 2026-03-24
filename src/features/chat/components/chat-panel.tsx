@@ -15,6 +15,8 @@ type ChatPanelProps = {
   initialThreadId: string | null;
   initialMessages: UiMessage[];
   mode: WorkspaceMode;
+  selectedDocumentIds: string[];
+  selectedDocumentTitles: string[];
 };
 
 type ChatResponse = {
@@ -24,7 +26,14 @@ type ChatResponse = {
   agentRunId: string;
 };
 
-export function ChatPanel({ projectId, initialThreadId, initialMessages, mode }: ChatPanelProps) {
+export function ChatPanel({
+  projectId,
+  initialThreadId,
+  initialMessages,
+  mode,
+  selectedDocumentIds,
+  selectedDocumentTitles,
+}: ChatPanelProps) {
   const [threadId, setThreadId] = useState<string | null>(initialThreadId);
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
   const [pendingText, setPendingText] = useState("");
@@ -46,6 +55,7 @@ export function ChatPanel({ projectId, initialThreadId, initialMessages, mode }:
           content,
           mode,
           threadId: threadId ?? undefined,
+          selectedDocumentIds,
         }),
       });
 
@@ -69,9 +79,31 @@ export function ChatPanel({ projectId, initialThreadId, initialMessages, mode }:
     <section className="flex h-full flex-col border-l border-slate-200 bg-white">
       <div className="border-b border-slate-200 px-4 py-3">
         <h2 className="text-sm font-semibold text-slate-900">Agent Chat</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Mode: <span className="font-medium text-slate-700">{mode}</span>
-        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <span>
+            Mode: <span className="font-medium text-slate-700">{mode}</span>
+          </span>
+          <span className="text-slate-300">|</span>
+          <span>
+            Context docs:{" "}
+            <span className="font-medium text-slate-700">{selectedDocumentIds.length}</span>
+          </span>
+        </div>
+        {selectedDocumentTitles.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {selectedDocumentTitles.map((title) => (
+              <span
+                key={title}
+                className="max-w-[180px] truncate rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600"
+                title={title}
+              >
+                {title}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-[11px] text-amber-700">No documents selected for context.</p>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">

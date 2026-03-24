@@ -21,6 +21,7 @@ export const chatRequestSchema = z.object({
   content: z.string().trim().min(1).max(10_000),
   mode: workspaceModeSchema.default("Ask"),
   threadId: z.string().optional(),
+  selectedDocumentIds: z.array(z.string().min(1)).max(50).optional().default([]),
 });
 
 export type WorkspaceMode = z.infer<typeof workspaceModeSchema>;

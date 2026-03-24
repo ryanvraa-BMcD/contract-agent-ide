@@ -40,12 +40,42 @@ export function WorkspaceLayout({
   initialMessages,
 }: WorkspaceLayoutProps) {
   const [mode, setMode] = useState<WorkspaceMode>("Ask");
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>(
+    documents.map((document) => document.id)
+  );
+
+  const toggleDocumentSelection = (documentId: string) => {
+    setSelectedDocumentIds((current) =>
+      current.includes(documentId)
+        ? current.filter((id) => id !== documentId)
+        : [...current, documentId]
+    );
+  };
+
+  const selectAllDocuments = () => {
+    setSelectedDocumentIds(documents.map((document) => document.id));
+  };
+
+  const clearSelectedDocuments = () => {
+    setSelectedDocumentIds([]);
+  };
+
+  const selectedDocumentTitles = documents
+    .filter((document) => selectedDocumentIds.includes(document.id))
+    .map((document) => document.title);
 
   return (
     <div className="flex h-screen flex-col bg-slate-100">
       <ModeToolbar mode={mode} onModeChange={setMode} />
       <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr_380px]">
-        <DocumentSidebar projectId={projectId} documents={documents} />
+        <DocumentSidebar
+          projectId={projectId}
+          documents={documents}
+          selectedDocumentIds={selectedDocumentIds}
+          onToggleDocumentSelection={toggleDocumentSelection}
+          onSelectAllDocuments={selectAllDocuments}
+          onClearSelectedDocuments={clearSelectedDocuments}
+        />
         <main className="min-h-0 overflow-y-auto bg-white p-6">
           <div className="mx-auto max-w-4xl rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 p-5">
@@ -68,6 +98,8 @@ export function WorkspaceLayout({
           initialThreadId={threadId}
           initialMessages={initialMessages}
           mode={mode}
+          selectedDocumentIds={selectedDocumentIds}
+          selectedDocumentTitles={selectedDocumentTitles}
         />
       </div>
     </div>
