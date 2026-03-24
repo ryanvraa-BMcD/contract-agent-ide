@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum AgentMode {
+  ASK
+  PLAN
+  EDIT
+  COMPARE
+}
+
+enum AgentRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum EditProposalStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACCEPTED
+  REJECTED
+  PARTIALLY_APPLIED
+}
+
+enum EditOperationType {
+  REPLACE_TEXT
+  INSERT_BEFORE
+  INSERT_AFTER
+}
+
+enum EditOperationApplyStatus {
+  PENDING
+  APPLIED
+  SKIPPED
+  FAILED
+}
+
+enum ExportJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Project {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  documents   Document[]
+  chatThreads ChatThread[]
+  agentRuns   AgentRun[]
+  editProposals EditProposal[]
+  exportJobs  ExportJob[]
+}
+
+model Document {
+  id                   String           @id @default(cuid())
+  projectId            String
+  title                String
+  originalFilename     String
+  originalMimeType     String
+  originalSizeBytes    Int
+  originalStorageKey   String
+  originalChecksum     String?
+  normalizedMimeType   String?
+  normalizedStorageKey String?
+  normalizedSizeBytes  Int?
+  normalizedChecksum   String?
+  activeVersionId      String?          @unique
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  project              Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions             DocumentVersion[]
+  activeVersion        DocumentVersion? @relation("ActiveDocumentVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
+  agentRuns            AgentRun[]
+  editProposals        EditProposal[]
+  exportJobs           ExportJob[]
+
+  @@index([projectId])
+  @@index([projectId, createdAt])
+}
+
+model DocumentVersion {
+  id               String            @id @default(cuid())
+  documentId       String
+  parentVersionId  String?
+  versionNumber    Int
+  storageKey       String?
+  checksum         String?
+  sizeBytes        Int?
+  plainText        String?
+  structuredJson   Json?
+  contentText      String?
+  sourceLabel      String?
+  createdBy        String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  document         Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parentVersion    DocumentVersion?  @relation("DocumentVersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  childVersions    DocumentVersion[] @relation("DocumentVersionLineage")
+  activeFor        Document?         @relation("ActiveDocumentVersion")
+  chunks           DocumentChunk[]
+  targetProposals  EditProposal[]    @relation("TargetDocumentVersion")
+  editOperations   EditOperation[]
+  exportJobs       ExportJob[]
+  targetAgentRuns  AgentRun[]        @relation("TargetAgentRunVersion")
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId])
+  @@index([parentVersionId])
+}
+
+model DocumentChunk {
+  id                String          @id @default(cuid())
+  documentVersionId String
+  chunkIndex        Int
+  orderIndex        Int
+  headingPath       Json?
+  sourceStart       Int?
+  sourceEnd         Int?
+  text              String
+  metadataJson      Json?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  documentVersion   DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([documentVersionId, chunkIndex])
+  @@index([documentVersionId, orderIndex])
+}
+
+model ChatThread {
+  id        String        @id @default(cuid())
+  projectId String
+  title     String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages  ChatMessage[]
+  agentRuns AgentRun[]
+
+  @@index([projectId])
+}
+
+model ChatMessage {
+  id            String      @id @default(cuid())
+  threadId      String
+  agentRunId    String?
+  role          MessageRole
+  content       String
+  citationsJson Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  thread        ChatThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  agentRun      AgentRun?   @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+
+  @@index([threadId, createdAt])
+  @@index([agentRunId])
+}
+
+model AgentRun {
+  id                  String           @id @default(cuid())
+  projectId           String
+  threadId            String?
+  documentId          String?
+  targetVersionId     String?
+  mode                AgentMode
+  status              AgentRunStatus   @default(QUEUED)
+  inputText           String?
+  outputText          String?
+  requestJson         Json?
+  responseJson        Json?
+  selectedDocumentIds String[]         @default([])
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  project             Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  thread              ChatThread?      @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  document            Document?        @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  targetVersion       DocumentVersion? @relation("TargetAgentRunVersion", fields: [targetVersionId], references: [id], onDelete: SetNull)
+  chatMessages        ChatMessage[]
+  editProposals       EditProposal[]
+
+  @@index([projectId, createdAt])
+  @@index([threadId])
+  @@index([documentId])
+  @@index([targetVersionId])
+}
+
+model EditProposal {
+  id              String             @id @default(cuid())
+  agentRunId      String
+  projectId       String
+  documentId      String
+  targetVersionId String?
+  title           String
+  summary         String?
+  rationale       String?
+  patchText       String?
+  status          EditProposalStatus @default(DRAFT)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  agentRun        AgentRun           @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  project         Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  document        Document           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  targetVersion   DocumentVersion?   @relation("TargetDocumentVersion", fields: [targetVersionId], references: [id], onDelete: SetNull)
+  operations      EditOperation[]
+
+  @@index([agentRunId])
+  @@index([projectId])
+  @@index([documentId])
+  @@index([targetVersionId])
+}
+
+model EditOperation {
+  id                String                   @id @default(cuid())
+  editProposalId    String
+  documentVersionId String?
+  opType            EditOperationType
+  targetLocatorJson Json
+  findText          String?
+  replaceText       String?
+  insertText        String?
+  orderIndex        Int                      @default(0)
+  applyStatus       EditOperationApplyStatus @default(PENDING)
+  applyError        String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  editProposal      EditProposal             @relation(fields: [editProposalId], references: [id], onDelete: Cascade)
+  documentVersion   DocumentVersion?         @relation(fields: [documentVersionId], references: [id], onDelete: SetNull)
+
+  @@index([editProposalId, orderIndex])
+  @@index([documentVersionId])
+}
+
+model ExportJob {
+  id                String          @id @default(cuid())
+  projectId         String
+  documentId        String
+  documentVersionId String
+  requestedBy       String?
+  format            String          @default("DOCX")
+  status            ExportJobStatus @default(PENDING)
+  outputStorageKey  String?
+  error             String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  project           Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  document          Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentVersion   DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([documentId])
+  @@index([documentVersionId])
+  @@index([status])
+}
