@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sendChatMessageStub } from "@/src/features/chat/actions";
 import { chatRequestSchema } from "@/src/lib/validation";
 import { runAskMode } from "@/src/server/ai/run-ask";
+import { runPlanMode } from "@/src/server/ai/run-plan";
 
 type ChatRouteContext = {
   params: Promise<{
@@ -26,6 +27,19 @@ export async function POST(request: Request, context: ChatRouteContext) {
       selectedDocumentIds: parsed.data.selectedDocumentIds,
     });
     return NextResponse.json(askResult);
+  }
+
+  if (parsed.data.mode === "Plan") {
+    const planResult = await runPlanMode({
+      projectId,
+      content: parsed.data.content,
+      threadId: parsed.data.threadId,
+      selectedDocumentIds: parsed.data.selectedDocumentIds,
+    });
+    return NextResponse.json({
+      ...planResult,
+      citations: planResult.plan.items.flatMap((item) => item.citations),
+    });
   }
 
   const stubResult = await sendChatMessageStub({
