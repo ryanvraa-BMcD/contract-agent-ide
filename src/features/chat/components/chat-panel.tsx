@@ -3,11 +3,19 @@
 import { FormEvent, useState } from "react";
 import type { WorkspaceMode } from "@/src/lib/validation";
 
+type UiCitation = {
+  documentId: string;
+  versionId: string;
+  chunkId: string;
+  snippet: string;
+};
+
 type UiMessage = {
   id: string;
   role: "USER" | "ASSISTANT" | "SYSTEM";
   content: string;
   createdAt: string;
+  citations?: UiCitation[];
 };
 
 type ChatPanelProps = {
@@ -17,6 +25,7 @@ type ChatPanelProps = {
   mode: WorkspaceMode;
   selectedDocumentIds: string[];
   selectedDocumentTitles: string[];
+  documentTitleById: Record<string, string>;
 };
 
 type ChatResponse = {
@@ -24,7 +33,24 @@ type ChatResponse = {
   userMessage: UiMessage;
   assistantMessage: UiMessage;
   agentRunId: string;
+  citations?: UiCitation[];
 };
+
+function normalizeCitations(value: unknown): UiCitation[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => {
+      if (!item || typeof item !== "object") return false;
+      const citation = item as Record<string, unknown>;
+      return (
+        typeof citation.documentId === "string" &&
+        typeof citation.versionId === "string" &&
+        typeof citation.chunkId === "string" &&
+        typeof citation.snippet === "string"
+      );
+    })
+    .map((item) => item as UiCitation);
+}
 
 export function ChatPanel({
   projectId,
@@ -33,6 +59,7 @@ export function ChatPanel({
   mode,
   selectedDocumentIds,
   selectedDocumentTitles,
+  documentTitleById,
 }: ChatPanelProps) {
   const [threadId, setThreadId] = useState<string | null>(initialThreadId);
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
@@ -66,7 +93,11 @@ export function ChatPanel({
 
       const payload = (await response.json()) as ChatResponse;
       setThreadId(payload.threadId);
-      setMessages((current) => [...current, payload.userMessage, payload.assistantMessage]);
+      const assistantWithCitations: UiMessage = {
+        ...payload.assistantMessage,
+        citations: normalizeCitations(payload.citations ?? payload.assistantMessage.citations),
+      };
+      setMessages((current) => [...current, payload.userMessage, assistantWithCitations]);
       setPendingText("");
     } catch (chatError) {
       setError(chatError instanceof Error ? chatError.message : "Failed to send chat message.");
@@ -123,6 +154,36 @@ export function ChatPanel({
                 {message.role.toLowerCase()}
               </p>
               <p className="whitespace-pre-wrap">{message.content}</p>
+              {message.role === "ASSISTANT" && (mode === "Ask" || (message.citations?.length ?? 0) > 0) ? (
+                <div className="mt-3">
+                  {message.citations && message.citations.length > 0 ? (
+                    <div className="space-y-2 border-t border-slate-300/70 pt-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Citations
+                      </p>
+                      {message.citations.map((citation) => (
+                        <div
+                          key={`${message.id}-${citation.chunkId}`}
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700"
+                        >
+                          <p className="truncate font-medium text-slate-800">
+                            {documentTitleById[citation.documentId] || citation.documentId}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-slate-500">
+                            chunk {citation.chunkId.slice(0, 8)} | version{" "}
+                            {citation.versionId.slice(0, 8)}
+                          </p>
+                          <p className="mt-1 line-clamp-3 text-[11px] italic text-slate-600">
+                            "{citation.snippet}"
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-[11px] text-slate-500">No citations available.</p>
+                  )}
+                </div>
+              ) : null}
             </article>
           ))
         )}

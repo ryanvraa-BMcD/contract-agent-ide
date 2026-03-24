@@ -20,6 +20,37 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   const thread = project.chatThreads[0] ?? null;
 
+  const normalizeCitations = (
+    value: unknown
+  ): {
+    documentId: string;
+    versionId: string;
+    chunkId: string;
+    snippet: string;
+  }[] => {
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter((item) => {
+        if (!item || typeof item !== "object") return false;
+        const candidate = item as Record<string, unknown>;
+        return (
+          typeof candidate.documentId === "string" &&
+          typeof candidate.versionId === "string" &&
+          typeof candidate.chunkId === "string" &&
+          typeof candidate.snippet === "string"
+        );
+      })
+      .map((item) => {
+        const candidate = item as {
+          documentId: string;
+          versionId: string;
+          chunkId: string;
+          snippet: string;
+        };
+        return candidate;
+      });
+  };
+
   return (
     <WorkspaceLayout
       projectId={project.id}
@@ -40,6 +71,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         role: message.role,
         content: message.content,
         createdAt: message.createdAt.toISOString(),
+        citations: normalizeCitations(message.citationsJson),
       }))}
     />
   );

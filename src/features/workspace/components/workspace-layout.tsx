@@ -22,6 +22,12 @@ type WorkspaceMessage = {
   role: "USER" | "ASSISTANT" | "SYSTEM";
   content: string;
   createdAt: string;
+  citations?: {
+    documentId: string;
+    versionId: string;
+    chunkId: string;
+    snippet: string;
+  }[];
 };
 
 type WorkspaceLayoutProps = {
@@ -63,6 +69,10 @@ export function WorkspaceLayout({
   const selectedDocumentTitles = documents
     .filter((document) => selectedDocumentIds.includes(document.id))
     .map((document) => document.title);
+  const documentTitleById = documents.reduce<Record<string, string>>((acc, document) => {
+    acc[document.id] = document.title;
+    return acc;
+  }, {});
 
   return (
     <div className="flex h-screen flex-col bg-slate-100">
@@ -100,6 +110,7 @@ export function WorkspaceLayout({
           mode={mode}
           selectedDocumentIds={selectedDocumentIds}
           selectedDocumentTitles={selectedDocumentTitles}
+          documentTitleById={documentTitleById}
         />
       </div>
     </div>
