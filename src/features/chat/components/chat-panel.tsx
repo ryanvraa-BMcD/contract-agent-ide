@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import type { ReviewProposal } from "@/src/features/review/types";
 import type { WorkspaceMode } from "@/src/lib/validation";
 
 type UiCitation = {
@@ -26,6 +27,7 @@ type ChatPanelProps = {
   selectedDocumentIds: string[];
   selectedDocumentTitles: string[];
   documentTitleById: Record<string, string>;
+  onEditProposals: (proposals: ReviewProposal[]) => void;
 };
 
 type ChatResponse = {
@@ -34,6 +36,9 @@ type ChatResponse = {
   assistantMessage: UiMessage;
   agentRunId: string;
   citations?: UiCitation[];
+  edit?: {
+    proposals: ReviewProposal[];
+  };
 };
 
 function normalizeCitations(value: unknown): UiCitation[] {
@@ -60,6 +65,7 @@ export function ChatPanel({
   selectedDocumentIds,
   selectedDocumentTitles,
   documentTitleById,
+  onEditProposals,
 }: ChatPanelProps) {
   const [threadId, setThreadId] = useState<string | null>(initialThreadId);
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
@@ -98,6 +104,9 @@ export function ChatPanel({
         citations: normalizeCitations(payload.citations ?? payload.assistantMessage.citations),
       };
       setMessages((current) => [...current, payload.userMessage, assistantWithCitations]);
+      if (payload.edit?.proposals) {
+        onEditProposals(payload.edit.proposals);
+      }
       setPendingText("");
     } catch (chatError) {
       setError(chatError instanceof Error ? chatError.message : "Failed to send chat message.");

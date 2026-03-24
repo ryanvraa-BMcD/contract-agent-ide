@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { ChatPanel } from "@/src/features/chat/components/chat-panel";
 import { DocumentSidebar } from "@/src/features/documents/components/document-sidebar";
+import { ReviewPanel } from "@/src/features/review/components/review-panel";
+import type { ReviewProposal } from "@/src/features/review/types";
 import { ModeToolbar } from "@/src/features/workspace/components/mode-toolbar";
 import type { WorkspaceMode } from "@/src/lib/validation";
 
@@ -46,6 +48,7 @@ export function WorkspaceLayout({
   initialMessages,
 }: WorkspaceLayoutProps) {
   const [mode, setMode] = useState<WorkspaceMode>("Ask");
+  const [editProposals, setEditProposals] = useState<ReviewProposal[]>([]);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>(
     documents.map((document) => document.id)
   );
@@ -102,6 +105,7 @@ export function WorkspaceLayout({
               </div>
             </div>
           </div>
+          <ReviewPanel proposals={editProposals} documentTitleById={documentTitleById} />
         </main>
         <ChatPanel
           projectId={projectId}
@@ -111,6 +115,7 @@ export function WorkspaceLayout({
           selectedDocumentIds={selectedDocumentIds}
           selectedDocumentTitles={selectedDocumentTitles}
           documentTitleById={documentTitleById}
+          onEditProposals={setEditProposals}
         />
       </div>
     </div>
