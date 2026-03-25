@@ -44,7 +44,7 @@ export async function sendChatMessageStub(input: {
   const selectedDocumentIds = input.selectedDocumentIds ?? [];
   const thread = await getOrCreateThread(input.projectId, input.threadId);
 
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: any) => {
     const userMessage = await tx.chatMessage.create({
       data: {
         threadId: thread.id,

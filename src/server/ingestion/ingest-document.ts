@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/src/lib/prisma";
 import type { LegalChunk, ParsedDocument } from "@/src/types/document";
 import { chunkLegalContent } from "@/src/server/ingestion/chunk-legal";
@@ -44,8 +43,8 @@ async function resolveDocumentVersionNumber(documentId: string) {
   return (latest?.versionNumber ?? 0) + 1;
 }
 
-function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+function toJsonValue(value: unknown) {
+  return JSON.parse(JSON.stringify(value)) as unknown;
 }
 
 async function persistIngestionArtifacts(params: {
@@ -60,7 +59,7 @@ async function persistIngestionArtifacts(params: {
 }) {
   const { input, normalizedDocx, parsed, chunks } = params;
 
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: any) => {
     const document =
       input.documentId
         ? await tx.document.findFirst({
@@ -98,7 +97,7 @@ async function persistIngestionArtifacts(params: {
         checksum: input.originalChecksum,
         sizeBytes: input.originalSizeBytes,
         plainText: parsed.plainText,
-        structuredJson: toInputJsonValue(parsed.structuredContent),
+        structuredJson: toJsonValue(parsed.structuredContent) as any,
         contentText: parsed.plainText,
         sourceLabel: normalizedDocx.wasConverted ? "converted-docx" : "uploaded-docx",
         createdBy: input.createdBy,
@@ -111,12 +110,12 @@ async function persistIngestionArtifacts(params: {
           documentVersionId: documentVersion.id,
           chunkIndex: chunk.chunkIndex,
           orderIndex: chunk.orderIndex,
-          headingPath: toInputJsonValue(chunk.headingPath),
+          headingPath: toJsonValue(chunk.headingPath) as any,
           sourceStart: chunk.sourceStart,
           sourceEnd: chunk.sourceEnd,
           text: chunk.text,
           metadataJson:
-            chunk.metadata === undefined ? undefined : toInputJsonValue(chunk.metadata),
+            chunk.metadata === undefined ? undefined : (toJsonValue(chunk.metadata) as any),
         })),
       });
     }

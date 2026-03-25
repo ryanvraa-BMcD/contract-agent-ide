@@ -1,5 +1,4 @@
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
-import { Prisma } from "@prisma/client";
 import { storage, storageKeys } from "@/src/lib/storage";
 import type { StructuredBlock } from "@/src/types/document";
 
@@ -10,7 +9,7 @@ type ExportDocxInput = {
   exportJobId: string;
   title: string;
   plainText: string | null;
-  structuredJson: Prisma.JsonValue | null;
+  structuredJson: unknown;
 };
 
 type ExportDocxResult = {
@@ -21,14 +20,16 @@ type ExportDocxResult = {
   exporterMode: "structured_json" | "plain_text";
 };
 
-function isJsonObject(value: Prisma.JsonValue): value is Prisma.JsonObject {
+type JsonLike = null | string | number | boolean | JsonLike[] | { [key: string]: JsonLike };
+
+function isJsonObject(value: JsonLike): value is { [key: string]: JsonLike } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseStructuredBlocks(structuredJson: Prisma.JsonValue | null): StructuredBlock[] {
+function parseStructuredBlocks(structuredJson: unknown): StructuredBlock[] {
   if (!Array.isArray(structuredJson)) return [];
   return structuredJson
-    .filter((value): value is Prisma.JsonObject => isJsonObject(value))
+    .filter((value): value is { [key: string]: JsonLike } => isJsonObject(value as JsonLike))
     .map((value, index) => {
       const type = typeof value["type"] === "string" ? value["type"] : "paragraph";
       const text = typeof value["text"] === "string" ? value["text"] : "";

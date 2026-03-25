@@ -3,7 +3,6 @@ import {
   AgentRunStatus,
   EditOperationType,
   MessageRole,
-  Prisma,
 } from "@prisma/client";
 import { prisma } from "@/src/lib/prisma";
 import { getOrCreateThread } from "@/src/features/chat/actions";
@@ -162,7 +161,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
     maxChunks: 10,
   });
 
-  const initial = await prisma.$transaction(async (tx) => {
+  const initial = await prisma.$transaction(async (tx: any) => {
     const userMessage = await tx.chatMessage.create({
       data: {
         threadId: thread.id,
@@ -183,7 +182,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
         requestJson: {
           question: input.content,
           selectedDocumentIds: context.selectedDocumentIds,
-        } as Prisma.InputJsonValue,
+        } as any,
       },
       select: { id: true },
     });
@@ -201,7 +200,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
     const assistantContent = renderEditSummary(edit);
     const citations = edit.proposals.flatMap((proposal) => proposal.citations);
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: any) => {
       for (const proposal of edit.proposals) {
         const target = proposal.operations[0]?.target ?? proposal.citations[0];
         const createdProposal = await tx.editProposal.create({
@@ -223,7 +222,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
             editProposalId: createdProposal.id,
             documentVersionId: operation.target.versionId,
             opType: mapOperationTypeToPrisma(operation.opType),
-            targetLocatorJson: operation.target as Prisma.InputJsonValue,
+            targetLocatorJson: operation.target as any,
             findText: operation.findText,
             replaceText: operation.replaceText,
             insertText: operation.insertText,
@@ -238,7 +237,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
           agentRunId: initial.agentRunId,
           role: MessageRole.ASSISTANT,
           content: assistantContent,
-          citationsJson: citations as Prisma.InputJsonValue,
+          citationsJson: citations as any,
         },
         select: { id: true, role: true, content: true, createdAt: true },
       });
@@ -248,7 +247,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
         data: {
           status: AgentRunStatus.COMPLETED,
           outputText: assistantContent,
-          responseJson: edit as Prisma.InputJsonValue,
+          responseJson: edit as any,
           completedAt: new Date(),
         },
       });
@@ -280,7 +279,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
       error instanceof Error ? error.message : "Edit proposal generation failed safely.";
     const assistantContent = `Unable to generate safe edit proposals: ${errorMessage}`;
 
-    const failed = await prisma.$transaction(async (tx) => {
+    const failed = await prisma.$transaction(async (tx: any) => {
       const assistantMessage = await tx.chatMessage.create({
         data: {
           threadId: thread.id,
@@ -296,7 +295,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
         data: {
           status: AgentRunStatus.FAILED,
           outputText: assistantContent,
-          responseJson: { error: errorMessage } as Prisma.InputJsonValue,
+          responseJson: { error: errorMessage } as any,
           completedAt: new Date(),
         },
       });

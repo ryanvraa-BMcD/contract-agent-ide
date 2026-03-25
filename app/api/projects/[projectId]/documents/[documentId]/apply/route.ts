@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { applyDeterministicOperations } from "@/src/server/editing/apply-operations";
@@ -167,7 +166,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    const persisted = await prisma.$transaction(async (tx) => {
+    const persisted = await prisma.$transaction(async (tx: any) => {
       const latest = await tx.documentVersion.findFirst({
         where: { documentId },
         orderBy: { versionNumber: "desc" },
@@ -182,7 +181,7 @@ export async function POST(request: Request, context: RouteContext) {
           versionNumber: nextVersionNumber,
           plainText: applyResult.updatedText,
           contentText: applyResult.updatedText,
-          structuredJson: targetVersion.structuredJson as Prisma.InputJsonValue,
+          structuredJson: targetVersion.structuredJson as any,
           sizeBytes: applyResult.updatedText.length,
           checksum: hashTextContent(applyResult.updatedText),
           sourceLabel: `applied-v${targetVersion.versionNumber}`,

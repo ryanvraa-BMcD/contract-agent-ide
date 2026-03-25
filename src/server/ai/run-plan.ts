@@ -113,7 +113,7 @@ export async function runPlanMode(input: RunPlanModeInput): Promise<RunPlanModeR
   const plan = planModeResponseSchema.parse(rawPlan);
   const assistantText = renderPlanAsAssistantText(plan);
 
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: any) => {
     const userMessage = await tx.chatMessage.create({
       data: {
         threadId: thread.id,

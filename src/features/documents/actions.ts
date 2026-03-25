@@ -87,7 +87,7 @@ type CreateDocumentInput = {
 export async function createDocumentMetadata(input: CreateDocumentInput) {
   const parsed = createDocumentSchema.parse(input);
 
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: any) => {
     const document = await tx.document.create({
       data: {
         projectId: parsed.projectId,

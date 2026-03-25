@@ -75,7 +75,7 @@ export async function runAskMode(input: RunAskModeInput): Promise<RunAskModeResu
   const rawModelOutput = buildAskResponseFromContext(input.content, context);
   const validated = askModeResponseSchema.parse(rawModelOutput);
 
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: any) => {
     const userMessage = await tx.chatMessage.create({
       data: {
         threadId: thread.id,
