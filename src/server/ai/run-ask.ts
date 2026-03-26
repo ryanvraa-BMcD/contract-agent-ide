@@ -1,8 +1,9 @@
 import { AgentMode, AgentRunStatus, MessageRole } from "@prisma/client";
 import { prisma } from "@/src/lib/prisma";
-import { askModeResponseSchema, type AskModeResponse } from "@/src/server/ai/schemas";
+import { type AskModeResponse } from "@/src/server/ai/schemas";
 import { buildGroundedAskContext } from "@/src/server/retrieval/build-context";
 import { getOrCreateThread } from "@/src/features/chat/actions";
+import { callGeminiAsk } from "@/src/server/ai/gemini-calls";
 
 type RunAskModeInput = {
   projectId: string;
@@ -29,37 +30,6 @@ type RunAskModeResult = {
   citations: AskModeResponse["citations"];
 };
 
-function truncateSnippet(text: string, maxLength = 240) {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, maxLength - 1)}...`;
-}
-
-function buildAskResponseFromContext(content: string, context: Awaited<ReturnType<typeof buildGroundedAskContext>>) {
-  if (context.rankedChunks.length === 0) {
-    return {
-      answer:
-        "I could not find relevant passages in the selected document context for this question. Try selecting additional documents or rephrasing with clause keywords.",
-      citations: [],
-    };
-  }
-
-  const topChunks = context.rankedChunks.slice(0, 3);
-  const citedDocuments = Array.from(new Set(topChunks.map((chunk) => chunk.documentTitle)));
-  const answer = `Based on the selected documents (${citedDocuments.join(
-    ", "
-  )}), here are the most relevant passages for your question: "${content.trim()}".`;
-
-  const citations = topChunks.map((chunk) => ({
-    documentId: chunk.documentId,
-    versionId: chunk.versionId,
-    chunkId: chunk.chunkId,
-    snippet: truncateSnippet(chunk.text),
-  }));
-
-  return { answer, citations };
-}
-
 export async function runAskMode(input: RunAskModeInput): Promise<RunAskModeResult> {
   const thread = await getOrCreateThread(input.projectId, input.threadId);
 
@@ -70,10 +40,7 @@ export async function runAskMode(input: RunAskModeInput): Promise<RunAskModeResu
     maxChunks: 8,
   });
 
-  // MVP grounded responder: lexical retrieval + deterministic synthesis.
-  // TODO: Replace with Responses API call while preserving this strict schema contract.
-  const rawModelOutput = buildAskResponseFromContext(input.content, context);
-  const validated = askModeResponseSchema.parse(rawModelOutput);
+  const validated = await callGeminiAsk(input.content, context.rankedChunks);
 
   return prisma.$transaction(async (tx: any) => {
     const userMessage = await tx.chatMessage.create({

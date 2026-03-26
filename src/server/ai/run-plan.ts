@@ -1,8 +1,9 @@
 import { AgentMode, AgentRunStatus, MessageRole } from "@prisma/client";
 import { prisma } from "@/src/lib/prisma";
 import { getOrCreateThread } from "@/src/features/chat/actions";
-import { planModeResponseSchema, type PlanModeResponse } from "@/src/server/ai/schemas";
+import { type PlanModeResponse } from "@/src/server/ai/schemas";
 import { buildGroundedAskContext } from "@/src/server/retrieval/build-context";
+import { callGeminiPlan } from "@/src/server/ai/gemini-calls";
 
 type RunPlanModeInput = {
   projectId: string;
@@ -29,59 +30,6 @@ type RunPlanModeResult = {
   plan: PlanModeResponse;
 };
 
-function truncateSnippet(text: string, maxLength = 220) {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, maxLength - 1)}...`;
-}
-
-function priorityFromScore(score: number): "low" | "medium" | "high" {
-  if (score >= 12) return "high";
-  if (score >= 7) return "medium";
-  return "low";
-}
-
-function buildPlanFromContext(
-  content: string,
-  context: Awaited<ReturnType<typeof buildGroundedAskContext>>
-): PlanModeResponse {
-  if (context.rankedChunks.length === 0) {
-    return {
-      summary:
-        "Insufficient grounded context was found in the selected documents to build a harmonization plan.",
-      items: [],
-    };
-  }
-
-  const top = context.rankedChunks.slice(0, 5);
-  const items = top.map((chunk, index) => {
-    const headingRef =
-      chunk.headingPath.length > 0 ? chunk.headingPath.join(" > ") : "Unlabeled section";
-
-    return {
-      id: `plan_${index + 1}`,
-      issue: `Review potential inconsistency in ${chunk.documentTitle} (${headingRef}).`,
-      whyItMatters:
-        "Ambiguous or inconsistent language across related contract documents can create interpretation risk and negotiation friction.",
-      priority: priorityFromScore(chunk.score),
-      citations: [
-        {
-          documentId: chunk.documentId,
-          versionId: chunk.versionId,
-          chunkId: chunk.chunkId,
-          snippet: truncateSnippet(chunk.text),
-        },
-      ],
-    };
-  });
-
-  const documentCount = new Set(top.map((chunk) => chunk.documentId)).size;
-  return {
-    summary: `Generated a grounded harmonization plan for "${content.trim()}" using ${top.length} relevant chunks across ${documentCount} selected document(s).`,
-    items,
-  };
-}
-
 function renderPlanAsAssistantText(plan: PlanModeResponse) {
   if (plan.items.length === 0) {
     return `${plan.summary}\n\nNo grounded plan items were produced.`;
@@ -107,10 +55,7 @@ export async function runPlanMode(input: RunPlanModeInput): Promise<RunPlanModeR
     maxChunks: 10,
   });
 
-  // MVP deterministic planner using grounded lexical context.
-  // TODO: Replace with model call while retaining this strict response contract.
-  const rawPlan = buildPlanFromContext(input.content, context);
-  const plan = planModeResponseSchema.parse(rawPlan);
+  const plan = await callGeminiPlan(input.content, context.rankedChunks);
   const assistantText = renderPlanAsAssistantText(plan);
 
   return prisma.$transaction(async (tx: any) => {

@@ -7,7 +7,8 @@ import {
 import { prisma } from "@/src/lib/prisma";
 import { getOrCreateThread } from "@/src/features/chat/actions";
 import { buildGroundedAskContext } from "@/src/server/retrieval/build-context";
-import { editModeResponseSchema, type EditModeResponse } from "@/src/server/ai/schemas";
+import { type EditModeResponse } from "@/src/server/ai/schemas";
+import { callGeminiEdit } from "@/src/server/ai/gemini-calls";
 
 type RunEditModeInput = {
   projectId: string;
@@ -39,64 +40,6 @@ type RunEditModeResult = {
     snippet: string;
   }[];
 };
-
-function truncateSnippet(text: string, maxLength = 220) {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, maxLength - 1)}...`;
-}
-
-function extractFindText(chunkText: string) {
-  const normalized = chunkText.replace(/\s+/g, " ").trim();
-  if (!normalized) return "";
-  const sentenceEnd = normalized.search(/[.;:!?]/);
-  const candidate =
-    sentenceEnd > 20 ? normalized.slice(0, sentenceEnd + 1) : normalized.slice(0, 180);
-  return candidate.trim();
-}
-
-function buildEditResponseFromContext(
-  content: string,
-  context: Awaited<ReturnType<typeof buildGroundedAskContext>>
-): EditModeResponse {
-  if (context.rankedChunks.length === 0) {
-    return { proposals: [] };
-  }
-
-  const topChunks = context.rankedChunks.slice(0, 3);
-  const proposals = topChunks.map((chunk) => {
-    const findText = extractFindText(chunk.text);
-    const headingLabel = chunk.headingPath.length > 0 ? chunk.headingPath.join(" > ") : "target clause";
-    return {
-      title: `Refine language in ${chunk.documentTitle} (${headingLabel})`,
-      rationale:
-        "Provides a review-first proposed change anchored to a specific clause while preserving deterministic, operation-based editing.",
-      citations: [
-        {
-          documentId: chunk.documentId,
-          versionId: chunk.versionId,
-          chunkId: chunk.chunkId,
-          snippet: truncateSnippet(chunk.text),
-        },
-      ],
-      operations: [
-        {
-          opType: "replace_text" as const,
-          target: {
-            documentId: chunk.documentId,
-            versionId: chunk.versionId,
-            chunkId: chunk.chunkId,
-            headingPath: chunk.headingPath,
-          },
-          findText,
-          replaceText: `${findText} [PROPOSED REVISION: review and tailor this sentence for ${content.trim()}]`,
-        },
-      ],
-    };
-  });
-
-  return { proposals };
-}
 
 function validateOperationalSafety(edit: EditModeResponse) {
   for (const proposal of edit.proposals) {
@@ -191,10 +134,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
   });
 
   try {
-    // MVP deterministic generator from grounded context.
-    // TODO: Replace with model output while preserving strict schema and safety checks.
-    const rawEdit = buildEditResponseFromContext(input.content, context);
-    const edit = editModeResponseSchema.parse(rawEdit);
+    const edit = await callGeminiEdit(input.content, context.rankedChunks);
     validateOperationalSafety(edit);
 
     const assistantContent = renderEditSummary(edit);
