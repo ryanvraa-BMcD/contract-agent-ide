@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { GitCompareArrows } from "lucide-react";
 
 type VersionInfo = {
   id: string;
@@ -28,16 +29,17 @@ type DiffRow = {
   status: "unchanged" | "changed" | "added" | "removed";
 };
 
+const STATUS_STYLES: Record<DiffRow["status"], string> = {
+  unchanged: "bg-card",
+  changed: "bg-warning/5",
+  added: "bg-success/5",
+  removed: "bg-destructive/5",
+};
+
 function sourceDisplay(version: VersionInfo) {
-  if (version.createdBy) {
-    return `User (${version.createdBy})`;
-  }
-  if (version.sourceLabel?.startsWith("applied")) {
-    return "Agent run";
-  }
-  if (version.sourceLabel) {
-    return version.sourceLabel;
-  }
+  if (version.createdBy) return `User (${version.createdBy})`;
+  if (version.sourceLabel?.startsWith("applied")) return "Agent run";
+  if (version.sourceLabel) return version.sourceLabel;
   return "System";
 }
 
@@ -63,31 +65,27 @@ function buildParagraphDiff(before: string, after: string): DiffRow[] {
     else if (beforePart && !afterPart) status = "removed";
     else if (beforePart !== afterPart) status = "changed";
 
-    rows.push({
-      index: i,
-      before: beforePart,
-      after: afterPart,
-      status,
-    });
+    rows.push({ index: i, before: beforePart, after: afterPart, status });
   }
 
   return rows;
 }
 
 function formatDate(value: string) {
-  const date = new Date(value);
-  return date.toLocaleString();
+  return new Date(value).toLocaleString();
 }
 
 export function VersionHistoryCompare({ documents }: VersionHistoryCompareProps) {
   const [activeDocumentId, setActiveDocumentId] = useState<string>(documents[0]?.id ?? "");
   const activeDocument = useMemo(
     () => documents.find((document) => document.id === activeDocumentId) ?? documents[0] ?? null,
-    [activeDocumentId, documents]
+    [activeDocumentId, documents],
   );
 
   const versionOptions = activeDocument?.versions ?? [];
-  const [beforeVersionId, setBeforeVersionId] = useState<string>(versionOptions[1]?.id ?? versionOptions[0]?.id ?? "");
+  const [beforeVersionId, setBeforeVersionId] = useState<string>(
+    versionOptions[1]?.id ?? versionOptions[0]?.id ?? "",
+  );
   const [afterVersionId, setAfterVersionId] = useState<string>(versionOptions[0]?.id ?? "");
 
   useEffect(() => {
@@ -104,70 +102,88 @@ export function VersionHistoryCompare({ documents }: VersionHistoryCompareProps)
 
   if (!activeDocument) {
     return (
-      <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Version History & Compare</h2>
-        <p className="mt-2 text-sm text-slate-600">Upload documents to view version lineage.</p>
+      <section className="mt-4 rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2">
+          <GitCompareArrows size={16} className="text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-card-foreground">
+            Version History & Compare
+          </h2>
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Upload documents to view version lineage.
+        </p>
       </section>
     );
   }
 
   const beforeVersion =
-    activeDocument.versions.find((version) => version.id === beforeVersionId) ??
+    activeDocument.versions.find((v) => v.id === beforeVersionId) ??
     activeDocument.versions[1] ??
     activeDocument.versions[0];
   const afterVersion =
-    activeDocument.versions.find((version) => version.id === afterVersionId) ??
+    activeDocument.versions.find((v) => v.id === afterVersionId) ??
     activeDocument.versions[0];
 
-  const diffRows = buildParagraphDiff(beforeVersion?.plainText || "", afterVersion?.plainText || "");
+  const diffRows = buildParagraphDiff(
+    beforeVersion?.plainText || "",
+    afterVersion?.plainText || "",
+  );
+
+  const selectClass =
+    "mt-1 w-full rounded-md border border-input bg-card px-2 py-1.5 text-xs text-card-foreground outline-none focus:ring-1 focus:ring-ring";
 
   return (
-    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
-      <div className="border-b border-slate-200 pb-3">
-        <h2 className="text-sm font-semibold text-slate-900">Version History & Compare</h2>
-        <p className="mt-1 text-xs text-slate-600">
+    <section className="mt-4 rounded-xl border border-border bg-card p-5">
+      <div className="border-b border-border pb-3">
+        <div className="flex items-center gap-2">
+          <GitCompareArrows size={16} className="text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-card-foreground">
+            Version History & Compare
+          </h2>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
           Inspect lineage and compare paragraph-level changes between two versions.
         </p>
 
         <div className="mt-3 grid gap-2 md:grid-cols-3">
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-muted-foreground">
             Document
             <select
-              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800"
+              className={selectClass}
               value={activeDocument.id}
-              onChange={(event) => setActiveDocumentId(event.target.value)}
+              onChange={(e) => setActiveDocumentId(e.target.value)}
             >
-              {documents.map((document) => (
-                <option key={document.id} value={document.id}>
-                  {document.title}
+              {documents.map((doc) => (
+                <option key={doc.id} value={doc.id}>
+                  {doc.title}
                 </option>
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-muted-foreground">
             Before
             <select
-              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800"
+              className={selectClass}
               value={beforeVersion?.id || ""}
-              onChange={(event) => setBeforeVersionId(event.target.value)}
+              onChange={(e) => setBeforeVersionId(e.target.value)}
             >
-              {versionOptions.map((version) => (
-                <option key={version.id} value={version.id}>
-                  v{version.versionNumber} - {sourceDisplay(version)}
+              {versionOptions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  v{v.versionNumber} - {sourceDisplay(v)}
                 </option>
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-600">
+          <label className="text-xs text-muted-foreground">
             After
             <select
-              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800"
+              className={selectClass}
               value={afterVersion?.id || ""}
-              onChange={(event) => setAfterVersionId(event.target.value)}
+              onChange={(e) => setAfterVersionId(e.target.value)}
             >
-              {versionOptions.map((version) => (
-                <option key={version.id} value={version.id}>
-                  v{version.versionNumber} - {sourceDisplay(version)}
+              {versionOptions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  v{v.versionNumber} - {sourceDisplay(v)}
                 </option>
               ))}
             </select>
@@ -175,10 +191,10 @@ export function VersionHistoryCompare({ documents }: VersionHistoryCompareProps)
         </div>
       </div>
 
-      <div className="mt-4 rounded-lg border border-slate-200">
-        <div className="grid grid-cols-[1fr_1fr] border-b border-slate-200 bg-slate-50 text-xs text-slate-600">
-          <div className="border-r border-slate-200 p-2">
-            <p className="font-semibold text-slate-700">Before</p>
+      <div className="mt-4 overflow-hidden rounded-lg border border-border">
+        <div className="grid grid-cols-[1fr_1fr] border-b border-border bg-muted text-xs text-muted-foreground">
+          <div className="border-r border-border p-2">
+            <p className="font-semibold text-card-foreground">Before</p>
             {beforeVersion ? (
               <p>
                 v{beforeVersion.versionNumber} | {sourceDisplay(beforeVersion)} |{" "}
@@ -189,7 +205,7 @@ export function VersionHistoryCompare({ documents }: VersionHistoryCompareProps)
             )}
           </div>
           <div className="p-2">
-            <p className="font-semibold text-slate-700">After</p>
+            <p className="font-semibold text-card-foreground">After</p>
             {afterVersion ? (
               <p>
                 v{afterVersion.versionNumber} | {sourceDisplay(afterVersion)} |{" "}
@@ -203,32 +219,30 @@ export function VersionHistoryCompare({ documents }: VersionHistoryCompareProps)
 
         <div className="max-h-[420px] overflow-auto">
           {diffRows.length === 0 ? (
-            <p className="p-3 text-sm text-slate-600">No textual content available for compare.</p>
+            <p className="p-3 text-sm text-muted-foreground">
+              No textual content available for compare.
+            </p>
           ) : (
             diffRows.map((row) => (
               <div
                 key={row.index}
-                className={`grid grid-cols-[1fr_1fr] border-t border-slate-200 text-xs ${
-                  row.status === "changed"
-                    ? "bg-amber-50"
-                    : row.status === "added"
-                    ? "bg-emerald-50"
-                    : row.status === "removed"
-                    ? "bg-rose-50"
-                    : "bg-white"
-                }`}
+                className={`grid grid-cols-[1fr_1fr] border-t border-border text-xs ${STATUS_STYLES[row.status]}`}
               >
-                <div className="border-r border-slate-200 p-2">
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <div className="border-r border-border p-2">
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     P{row.index + 1}
                   </p>
-                  <p className="whitespace-pre-wrap text-slate-700">{row.before || "-"}</p>
+                  <p className="whitespace-pre-wrap text-card-foreground">
+                    {row.before || "-"}
+                  </p>
                 </div>
                 <div className="p-2">
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     {row.status}
                   </p>
-                  <p className="whitespace-pre-wrap text-slate-700">{row.after || "-"}</p>
+                  <p className="whitespace-pre-wrap text-card-foreground">
+                    {row.after || "-"}
+                  </p>
                 </div>
               </div>
             ))
@@ -236,12 +250,15 @@ export function VersionHistoryCompare({ documents }: VersionHistoryCompareProps)
         </div>
       </div>
 
-      <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-600">
+      <div className="mt-3 rounded-md border border-border bg-muted p-2 text-[11px] text-muted-foreground">
         Version lineage ({activeDocument.versions.length}):
         <div className="mt-1 flex flex-wrap gap-1">
-          {activeDocument.versions.map((version) => (
-            <span key={version.id} className="rounded border border-slate-300 bg-white px-2 py-0.5">
-              v{version.versionNumber} - {sourceDisplay(version)}
+          {activeDocument.versions.map((v) => (
+            <span
+              key={v.id}
+              className="rounded border border-border bg-card px-2 py-0.5 text-card-foreground"
+            >
+              v{v.versionNumber} - {sourceDisplay(v)}
             </span>
           ))}
         </div>

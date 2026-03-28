@@ -1,6 +1,7 @@
 import {
   AgentMode,
   AgentRunStatus,
+  DocumentRole,
   EditOperationType,
   MessageRole,
 } from "@prisma/client";
@@ -15,6 +16,7 @@ type RunEditModeInput = {
   content: string;
   threadId?: string;
   selectedDocumentIds?: string[];
+  onContextReady?: () => void;
 };
 
 type RunEditModeResult = {
@@ -41,12 +43,20 @@ type RunEditModeResult = {
   }[];
 };
 
-function validateOperationalSafety(edit: EditModeResponse) {
+function validateOperationalSafety(
+  edit: EditModeResponse,
+  readOnlyDocumentIds: Set<string>,
+) {
   for (const proposal of edit.proposals) {
     if (proposal.citations.length === 0) {
       throw new Error("Edit proposal missing citations.");
     }
     for (const operation of proposal.operations) {
+      if (readOnlyDocumentIds.has(operation.target.documentId)) {
+        throw new Error(
+          "Edit operations must not target read-only documents. Reference documents and PDFs are read-only context.",
+        );
+      }
       if (operation.opType === "replace_text") {
         if (!operation.findText || !operation.replaceText) {
           throw new Error("replace_text operations require findText and replaceText.");
@@ -104,6 +114,8 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
     maxChunks: 10,
   });
 
+  input.onContextReady?.();
+
   const initial = await prisma.$transaction(async (tx: any) => {
     const userMessage = await tx.chatMessage.create({
       data: {
@@ -133,9 +145,18 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
     return { userMessage, agentRunId: agentRun.id };
   });
 
+  const readOnlyDocIds = new Set(
+    context.rankedChunks
+      .filter((c) =>
+        c.documentRole === DocumentRole.REFERENCE ||
+        c.originalMimeType === "application/pdf",
+      )
+      .map((c) => c.documentId),
+  );
+
   try {
     const edit = await callGeminiEdit(input.content, context.rankedChunks);
-    validateOperationalSafety(edit);
+    validateOperationalSafety(edit, readOnlyDocIds);
 
     const assistantContent = renderEditSummary(edit);
     const citations = edit.proposals.flatMap((proposal) => proposal.citations);

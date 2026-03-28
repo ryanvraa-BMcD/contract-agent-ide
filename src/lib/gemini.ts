@@ -13,4 +13,4 @@ if (process.env.NODE_ENV !== "production") {
   globalForGemini.gemini = gemini;
 }
 
-export const GEMINI_MODEL = "gemini-2.0-flash";
+export const GEMINI_MODEL = "gemini-2.5-flash";

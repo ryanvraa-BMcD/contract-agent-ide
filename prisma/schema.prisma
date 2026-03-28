@@ -56,6 +56,12 @@ enum ExportJobStatus {
   CANCELLED
 }
 
+enum DocumentRole {
+  MAIN_AGREEMENT
+  EXHIBIT
+  REFERENCE
+}
+
 model Project {
   id          String      @id @default(cuid())
   name        String
@@ -72,6 +78,7 @@ model Project {
 model Document {
   id                   String           @id @default(cuid())
   projectId            String
+  role                 DocumentRole     @default(MAIN_AGREEMENT)
   title                String
   originalFilename     String
   originalMimeType     String
@@ -106,6 +113,7 @@ model DocumentVersion {
   sizeBytes        Int?
   plainText        String?
   structuredJson   Json?
+  richJson         Json?
   contentText      String?
   sourceLabel      String?
   createdBy        String?

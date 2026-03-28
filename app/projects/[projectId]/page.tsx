@@ -58,6 +58,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       documents={project.documents.map((document) => ({
         id: document.id,
         title: document.title,
+        role: document.role,
         originalFilename: document.originalFilename,
         sizeBytes: document.originalSizeBytes,
         updatedAt: document.updatedAt.toISOString(),
@@ -71,6 +72,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
           sourceLabel: version.sourceLabel,
           createdBy: version.createdBy,
           plainText: version.plainText || "",
+          richJson: version.richJson ?? undefined,
         })),
       }))}
       threadId={thread?.id ?? null}

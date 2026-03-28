@@ -2,7 +2,9 @@ import { prisma } from "@/src/lib/prisma";
 import type { LegalChunk, ParsedDocument } from "@/src/types/document";
 import { chunkLegalContent } from "@/src/server/ingestion/chunk-legal";
 import { convertDocToDocxIfNeeded } from "@/src/server/ingestion/convert-doc";
-import { parseDocx } from "@/src/server/ingestion/parse-docx";
+import { parseDocx, type ParseDocxResult } from "@/src/server/ingestion/parse-docx";
+import { parsePdf } from "@/src/server/ingestion/parse-pdf";
+import { isPdfFile } from "@/src/features/documents/actions";
 
 export type IngestDocumentInput = {
   projectId: string;
@@ -30,7 +32,7 @@ function deriveDocumentTitle(filename: string, explicitTitle?: string) {
     return explicitTitle.trim();
   }
 
-  return filename.replace(/\.(doc|docx)$/i, "").trim() || "Untitled Document";
+  return filename.replace(/\.(doc|docx|pdf)$/i, "").trim() || "Untitled Document";
 }
 
 async function resolveDocumentVersionNumber(documentId: string) {
@@ -49,15 +51,13 @@ function toJsonValue(value: unknown) {
 
 async function persistIngestionArtifacts(params: {
   input: IngestDocumentInput;
-  normalizedDocx: {
-    filename: string;
-    mimeType: string;
-    wasConverted: boolean;
-  };
-  parsed: ParsedDocument;
+  sourceLabel: string;
+  normalizedMimeType: string;
+  storageKey: string | null;
+  parsed: ParseDocxResult;
   chunks: LegalChunk[];
 }) {
-  const { input, normalizedDocx, parsed, chunks } = params;
+  const { input, sourceLabel, normalizedMimeType, parsed, chunks } = params;
 
   return prisma.$transaction(async (tx: any) => {
     const document =
@@ -70,7 +70,6 @@ async function persistIngestionArtifacts(params: {
           })
         : null;
 
-    // TODO: Add guardrails for immutable source metadata on re-ingestion paths.
     const ensuredDocument =
       document ??
       (await tx.document.create({
@@ -82,7 +81,7 @@ async function persistIngestionArtifacts(params: {
           originalSizeBytes: input.originalSizeBytes,
           originalStorageKey: input.originalStorageKey,
           originalChecksum: input.originalChecksum,
-          normalizedMimeType: normalizedDocx.mimeType,
+          normalizedMimeType,
         },
       }));
 
@@ -93,13 +92,14 @@ async function persistIngestionArtifacts(params: {
         documentId: ensuredDocument.id,
         parentVersionId: input.parentVersionId,
         versionNumber,
-        storageKey: normalizedDocx.wasConverted ? null : input.originalStorageKey,
+        storageKey: params.storageKey,
         checksum: input.originalChecksum,
         sizeBytes: input.originalSizeBytes,
         plainText: parsed.plainText,
         structuredJson: toJsonValue(parsed.structuredContent) as any,
+        richJson: parsed.richJson ? toJsonValue(parsed.richJson) as any : null,
         contentText: parsed.plainText,
-        sourceLabel: normalizedDocx.wasConverted ? "converted-docx" : "uploaded-docx",
+        sourceLabel,
         createdBy: input.createdBy,
       },
     });
@@ -135,7 +135,31 @@ async function persistIngestionArtifacts(params: {
 }
 
 export async function ingestDocument(input: IngestDocumentInput): Promise<IngestDocumentResult> {
-  // TODO: Persist and reference normalized DOCX storage key after conversion pipeline is implemented.
+  if (isPdfFile(input.originalFilename, input.originalMimeType)) {
+    const parsed = await parsePdf({
+      filename: input.originalFilename,
+      fileBuffer: input.fileBuffer,
+    });
+
+    const chunks = chunkLegalContent({ parsedDocument: parsed });
+
+    const persisted = await persistIngestionArtifacts({
+      input,
+      sourceLabel: "uploaded-pdf",
+      normalizedMimeType: "application/pdf",
+      storageKey: input.originalStorageKey,
+      parsed,
+      chunks,
+    });
+
+    return {
+      documentId: persisted.documentId,
+      documentVersionId: persisted.documentVersionId,
+      chunkCount: chunks.length,
+      wasConverted: false,
+    };
+  }
+
   const normalizedDocx = await convertDocToDocxIfNeeded({
     filename: input.originalFilename,
     mimeType: input.originalMimeType,
@@ -148,17 +172,13 @@ export async function ingestDocument(input: IngestDocumentInput): Promise<Ingest
     fileBuffer: normalizedDocx.fileBuffer,
   });
 
-  const chunks = chunkLegalContent({
-    parsedDocument: parsed,
-  });
+  const chunks = chunkLegalContent({ parsedDocument: parsed });
 
   const persisted = await persistIngestionArtifacts({
     input,
-    normalizedDocx: {
-      filename: normalizedDocx.filename,
-      mimeType: normalizedDocx.mimeType,
-      wasConverted: normalizedDocx.wasConverted,
-    },
+    sourceLabel: normalizedDocx.wasConverted ? "converted-docx" : "uploaded-docx",
+    normalizedMimeType: normalizedDocx.mimeType,
+    storageKey: normalizedDocx.wasConverted ? null : input.originalStorageKey,
     parsed,
     chunks,
   });

@@ -47,6 +47,7 @@ export async function getProjectWorkspace(projectId: string) {
               sourceLabel: true,
               createdBy: true,
               plainText: true,
+              richJson: true,
             },
           },
         },

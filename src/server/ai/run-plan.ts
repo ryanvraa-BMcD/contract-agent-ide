@@ -10,6 +10,7 @@ type RunPlanModeInput = {
   content: string;
   threadId?: string;
   selectedDocumentIds?: string[];
+  onContextReady?: () => void;
 };
 
 type RunPlanModeResult = {
@@ -54,6 +55,8 @@ export async function runPlanMode(input: RunPlanModeInput): Promise<RunPlanModeR
     selectedDocumentIds: input.selectedDocumentIds,
     maxChunks: 10,
   });
+
+  input.onContextReady?.();
 
   const plan = await callGeminiPlan(input.content, context.rankedChunks);
   const assistantText = renderPlanAsAssistantText(plan);

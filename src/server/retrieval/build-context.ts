@@ -38,6 +38,7 @@ export async function buildGroundedAskContext(input: BuildContextInput): Promise
     select: {
       id: true,
       title: true,
+      role: true,
       activeVersionId: true,
     },
   });
@@ -73,6 +74,8 @@ export async function buildGroundedAskContext(input: BuildContextInput): Promise
             select: {
               id: true,
               title: true,
+              role: true,
+              originalMimeType: true,
             },
           },
         },
@@ -84,6 +87,8 @@ export async function buildGroundedAskContext(input: BuildContextInput): Promise
     chunkId: chunk.id,
     documentId: chunk.documentVersion.document.id,
     documentTitle: chunk.documentVersion.document.title,
+    documentRole: chunk.documentVersion.document.role,
+    originalMimeType: chunk.documentVersion.document.originalMimeType,
     versionId: chunk.documentVersion.id,
     text: chunk.text,
     headingPath: toHeadingPath(chunk.headingPath),

@@ -2,6 +2,8 @@ export type ChunkCandidate = {
   chunkId: string;
   documentId: string;
   documentTitle: string;
+  documentRole: "MAIN_AGREEMENT" | "EXHIBIT" | "REFERENCE";
+  originalMimeType?: string;
   versionId: string;
   text: string;
   headingPath: string[];

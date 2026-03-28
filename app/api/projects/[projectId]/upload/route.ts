@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
+import { DocumentRole } from "@prisma/client";
 import {
   isSupportedContractFile,
+  isPdfFile,
   upsertDocumentFromUpload,
 } from "@/src/features/documents/actions";
 import { storage, storageKeys } from "@/src/lib/storage";
 import { ingestDocument } from "@/src/server/ingestion/ingest-document";
+
+const VALID_ROLES = new Set<string>(Object.values(DocumentRole));
 
 export const runtime = "nodejs";
 
@@ -25,18 +29,29 @@ export async function POST(request: Request, context: UploadRouteContext) {
 
   if (!isSupportedContractFile(file.name, file.type)) {
     return NextResponse.json(
-      { error: "Unsupported file type. Only .doc and .docx files are accepted." },
+      { error: "Unsupported file type. Only .doc, .docx, and .pdf files are accepted." },
       { status: 400 }
     );
   }
+
+  const rawRole = formData.get("role");
+  const defaultRole = isPdfFile(file.name, file.type)
+    ? DocumentRole.REFERENCE
+    : DocumentRole.MAIN_AGREEMENT;
+  const role: DocumentRole =
+    typeof rawRole === "string" && VALID_ROLES.has(rawRole)
+      ? (rawRole as DocumentRole)
+      : defaultRole;
 
   const storageKey = storageKeys.originalUpload(projectId, file.name);
   const fileBuffer = Buffer.from(await file.arrayBuffer());
   const normalizedMimeType =
     file.type ||
-    (file.name.toLowerCase().endsWith(".doc")
-      ? "application/msword"
-      : "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    (file.name.toLowerCase().endsWith(".pdf")
+      ? "application/pdf"
+      : file.name.toLowerCase().endsWith(".doc")
+        ? "application/msword"
+        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
 
   const storedObject = await storage.putObject({
     key: storageKey,
@@ -44,7 +59,7 @@ export async function POST(request: Request, context: UploadRouteContext) {
     contentType: normalizedMimeType,
   });
 
-  const title = file.name.replace(/\.(doc|docx)$/i, "");
+  const title = file.name.replace(/\.(doc|docx|pdf)$/i, "");
 
   const document = await upsertDocumentFromUpload({
     projectId,
@@ -54,6 +69,7 @@ export async function POST(request: Request, context: UploadRouteContext) {
     sourceSizeBytes: file.size,
     originalStorageKey: storageKey,
     checksum: storedObject.checksumSha256,
+    role,
   });
 
   // TODO: Add persistent ingestion status field on Document once schema adds it.

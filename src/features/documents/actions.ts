@@ -1,23 +1,32 @@
+import { DocumentRole } from "@prisma/client";
 import { prisma } from "@/src/lib/prisma";
 import { createDocumentSchema } from "@/src/lib/validation";
 
 const DOC_MIME_TYPE = "application/msword";
 const DOCX_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PDF_MIME_TYPE = "application/pdf";
 
 export function isSupportedContractFile(filename: string, mimeType: string) {
   const lower = filename.toLowerCase();
   return (
     lower.endsWith(".docx") ||
     lower.endsWith(".doc") ||
+    lower.endsWith(".pdf") ||
     mimeType === DOCX_MIME_TYPE ||
-    mimeType === DOC_MIME_TYPE
+    mimeType === DOC_MIME_TYPE ||
+    mimeType === PDF_MIME_TYPE
   );
 }
 
 export function isDocxFile(filename: string, mimeType: string) {
   const lower = filename.toLowerCase();
   return lower.endsWith(".docx") || mimeType === DOCX_MIME_TYPE;
+}
+
+export function isPdfFile(filename: string, mimeType: string) {
+  const lower = filename.toLowerCase();
+  return lower.endsWith(".pdf") || mimeType === PDF_MIME_TYPE;
 }
 
 export async function listProjectDocuments(projectId: string) {
@@ -36,6 +45,7 @@ type UpsertDocumentFromUploadInput = {
   sourceSizeBytes: number;
   originalStorageKey: string;
   checksum?: string;
+  role?: DocumentRole;
 };
 
 export async function upsertDocumentFromUpload(input: UpsertDocumentFromUploadInput) {
@@ -47,6 +57,8 @@ export async function upsertDocumentFromUpload(input: UpsertDocumentFromUploadIn
     orderBy: { updatedAt: "desc" },
   });
 
+  const role = input.role ?? DocumentRole.MAIN_AGREEMENT;
+
   if (existing) {
     return prisma.document.update({
       where: { id: existing.id },
@@ -57,6 +69,7 @@ export async function upsertDocumentFromUpload(input: UpsertDocumentFromUploadIn
         originalSizeBytes: input.sourceSizeBytes,
         originalStorageKey: input.originalStorageKey,
         originalChecksum: input.checksum,
+        role,
       },
     });
   }
@@ -70,6 +83,7 @@ export async function upsertDocumentFromUpload(input: UpsertDocumentFromUploadIn
       originalSizeBytes: input.sourceSizeBytes,
       originalStorageKey: input.originalStorageKey,
       originalChecksum: input.checksum,
+      role,
     },
   });
 }
