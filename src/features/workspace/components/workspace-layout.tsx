@@ -1,15 +1,18 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Home,
   FileText,
   GitCompareArrows,
+  Eye,
   Save,
   PanelLeftClose,
   PanelLeft,
   ChevronRight,
+  Zap,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { ChatPanel } from "@/src/features/chat/components/chat-panel";
@@ -17,6 +20,7 @@ import { VersionHistoryCompare } from "@/src/features/compare/components/version
 import { DocumentSidebar } from "@/src/features/documents/components/document-sidebar";
 import { VersionTimeline } from "@/src/features/documents/components/version-timeline";
 import { DocumentEditor } from "@/src/features/editor/components/document-editor";
+import { DocumentPreview } from "@/src/features/editor/components/document-preview";
 import { ThemeToggle } from "@/src/features/workspace/components/theme-toggle";
 import type { ReviewProposal } from "@/src/features/review/types";
 import type { WorkspaceMode } from "@/src/lib/validation";
@@ -26,6 +30,7 @@ type WorkspaceDocument = {
   title: string;
   role: "MAIN_AGREEMENT" | "EXHIBIT" | "REFERENCE";
   originalFilename: string;
+  originalMimeType: string;
   sizeBytes: number;
   updatedAt: string;
   activeVersion: {
@@ -63,7 +68,7 @@ type WorkspaceLayoutProps = {
   initialMessages: WorkspaceMessage[];
 };
 
-type CenterView = "editor" | "compare";
+type CenterView = "editor" | "compare" | "preview";
 
 export function WorkspaceLayout({
   projectId,
@@ -73,6 +78,7 @@ export function WorkspaceLayout({
   initialMessages,
 }: WorkspaceLayoutProps) {
   const [mode, setMode] = useState<WorkspaceMode>("Ask");
+  const [pendingProposals, setPendingProposals] = useState<ReviewProposal[]>([]);
   const [editProposals, setEditProposals] = useState<ReviewProposal[]>([]);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>(
     documents.map((d) => d.id),
@@ -88,6 +94,8 @@ export function WorkspaceLayout({
   const [isSaving, setIsSaving] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const editorContentRef = useRef<Record<string, unknown> | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSaveVersionRef = useRef<() => Promise<void>>(async () => {});
   const router = useRouter();
 
   const activeDocument = documents.find((d) => d.id === activeDocumentId) ?? null;
@@ -142,10 +150,6 @@ export function WorkspaceLayout({
     ? (activeVersion.richJson as Record<string, unknown>) ?? activeVersion.plainText ?? ""
     : "";
 
-  const handleContentChange = useCallback((json: Record<string, unknown>) => {
-    editorContentRef.current = json;
-  }, []);
-
   const handleSaveVersion = useCallback(async () => {
     if (!activeDocumentId || !editorContentRef.current) return;
     setIsSaving(true);
@@ -170,6 +174,37 @@ export function WorkspaceLayout({
       setIsSaving(false);
     }
   }, [activeDocumentId, projectId, router]);
+
+  useEffect(() => {
+    handleSaveVersionRef.current = handleSaveVersion;
+  }, [handleSaveVersion]);
+
+  const handleContentChange = useCallback((json: Record<string, unknown>) => {
+    editorContentRef.current = json;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      handleSaveVersionRef.current();
+    }, 5000);
+  }, []);
+
+  useEffect(() => {
+    if (!editorDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [editorDirty]);
+
+  const incorporateProposals = useCallback(() => {
+    setEditProposals(pendingProposals);
+    setPendingProposals([]);
+  }, [pendingProposals]);
+
+  const dismissProposals = useCallback(() => {
+    setPendingProposals([]);
+  }, []);
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -258,17 +293,18 @@ export function WorkspaceLayout({
             </span>
 
             <div className="flex items-center gap-1">
-              {([["editor", "Document", FileText], ["compare", "Compare", GitCompareArrows]] as const).map(
+              {([["editor", "Document", FileText], ["compare", "Compare", GitCompareArrows], ["preview", "Preview", Eye]] as const).map(
                 ([view, label, Icon]) => (
                   <button
                     key={view}
                     type="button"
                     onClick={() => setCenterView(view)}
+                    disabled={view === "preview" && !activeDocumentId}
                     className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
                       centerView === view
                         ? "bg-accent text-accent-foreground"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    }`}
+                    } disabled:cursor-not-allowed disabled:opacity-40`}
                   >
                     <Icon size={13} />
                     {label}
@@ -277,6 +313,33 @@ export function WorkspaceLayout({
               )}
             </div>
           </div>
+
+          {pendingProposals.length > 0 && (
+            <div className="flex shrink-0 items-center gap-3 border-b border-border bg-accent px-4 py-2.5">
+              <Zap size={14} className="shrink-0 text-accent-foreground" />
+              <span className="text-xs font-medium text-accent-foreground">
+                {pendingProposals.length} edit{" "}
+                {pendingProposals.length === 1 ? "proposal" : "proposals"} ready
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={incorporateProposals}
+                  className="rounded-md bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  Incorporate Changes
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissProposals}
+                  className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  title="Dismiss proposals"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+          )}
 
           {centerView === "editor" && (
             <div className="min-h-0 flex-1">
@@ -307,6 +370,18 @@ export function WorkspaceLayout({
             </div>
           )}
 
+          {centerView === "preview" && activeDocument && (
+            <div className="min-h-0 flex-1">
+              <DocumentPreview
+                projectId={projectId}
+                documentId={activeDocument.id}
+                mimeType={activeDocument.originalMimeType}
+                title={activeDocument.title}
+                isInContext={selectedDocumentIds.includes(activeDocument.id)}
+              />
+            </div>
+          )}
+
           {!activeDocument && centerView !== "compare" && (
             <div className="flex flex-1 items-center justify-center">
               <div className="text-center">
@@ -332,7 +407,7 @@ export function WorkspaceLayout({
           selectedDocumentIds={selectedDocumentIds}
           selectedDocumentTitles={selectedDocumentTitles}
           documentTitleById={documentTitleById}
-          onEditProposals={setEditProposals}
+          onEditProposals={setPendingProposals}
           editProposals={editProposals}
         />
       </div>

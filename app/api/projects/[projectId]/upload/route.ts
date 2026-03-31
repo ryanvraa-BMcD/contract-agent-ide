@@ -29,7 +29,22 @@ export async function POST(request: Request, context: UploadRouteContext) {
 
   if (!isSupportedContractFile(file.name, file.type)) {
     return NextResponse.json(
-      { error: "Unsupported file type. Only .doc, .docx, and .pdf files are accepted." },
+      { error: "Unsupported file type. Only .docx and .pdf files are accepted." },
+      { status: 400 }
+    );
+  }
+
+  const isDocFile =
+    file.name.toLowerCase().endsWith(".doc") && !file.name.toLowerCase().endsWith(".docx");
+  const isDocMime =
+    file.type === "application/msword" &&
+    !file.name.toLowerCase().endsWith(".docx");
+  if (isDocFile || isDocMime) {
+    return NextResponse.json(
+      {
+        error:
+          "Legacy .doc format is not yet supported. Please re-save the file as .docx (Word 2007 or later) and upload again.",
+      },
       { status: 400 }
     );
   }

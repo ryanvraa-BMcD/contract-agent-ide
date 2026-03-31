@@ -60,6 +60,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         title: document.title,
         role: document.role,
         originalFilename: document.originalFilename,
+        originalMimeType: document.originalMimeType,
         sizeBytes: document.originalSizeBytes,
         updatedAt: document.updatedAt.toISOString(),
         activeVersion: document.activeVersion
