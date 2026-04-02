@@ -1,5 +1,5 @@
 import { AgentMode, AgentRunStatus, MessageRole } from "@prisma/client";
-import { prisma } from "@/src/lib/prisma";
+import { prisma, type TransactionClient } from "@/src/lib/prisma";
 import { workspaceModeSchema } from "@/src/lib/validation";
 
 const modeMap: Record<string, AgentMode> = {
@@ -44,7 +44,7 @@ export async function sendChatMessageStub(input: {
   const selectedDocumentIds = input.selectedDocumentIds ?? [];
   const thread = await getOrCreateThread(input.projectId, input.threadId);
 
-  return prisma.$transaction(async (tx: any) => {
+  return prisma.$transaction(async (tx: TransactionClient) => {
     const userMessage = await tx.chatMessage.create({
       data: {
         threadId: thread.id,

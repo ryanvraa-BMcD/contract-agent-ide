@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
+import { notFound } from "@/src/lib/api-helpers";
 
 export const runtime = "nodejs";
 
 type RouteContext = {
-  params: Promise<{
-    projectId: string;
-    documentId: string;
-  }>;
+  params: Promise<{ projectId: string; documentId: string }>;
 };
 
 export async function DELETE(_request: Request, context: RouteContext) {
@@ -18,9 +16,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
     select: { id: true },
   });
 
-  if (!document) {
-    return NextResponse.json({ error: "Document not found." }, { status: 404 });
-  }
+  if (!document) return notFound("Document");
 
   await prisma.document.delete({ where: { id: documentId } });
 

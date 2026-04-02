@@ -11,7 +11,8 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Highlight } from "@tiptap/extension-highlight";
 import { Placeholder } from "@tiptap/extension-placeholder";
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { EditorToolbar } from "./editor-toolbar";
 import { EditorPage } from "./editor-page";
 import {
@@ -33,6 +34,13 @@ type DocumentEditorProps = {
   styleSettings?: ProjectStyleSettings;
 };
 
+type TrackPopup = {
+  top: number;
+  left: number;
+  proposalId: string;
+  isInsertion: boolean;
+};
+
 export function DocumentEditor({
   content,
   onDirtyChange,
@@ -45,9 +53,8 @@ export function DocumentEditor({
   styleSettings,
 }: DocumentEditorProps) {
   const appliedProposalsRef = useRef<Set<string>>(new Set());
-  // Suppresses onUpdate during programmatic setContent/clearContent so loading
-  // a document or switching versions does not trigger the auto-save timer.
   const isLoadingContentRef = useRef(false);
+  const [trackPopup, setTrackPopup] = useState<TrackPopup | null>(null);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -86,7 +93,12 @@ export function DocumentEditor({
         const isDeletion = trackEl.tagName === "DEL";
 
         const rect = trackEl.getBoundingClientRect();
-        showTrackChangePopup(rect, proposalId, isInsertion, isDeletion);
+        setTrackPopup({
+          top: rect.bottom + 4,
+          left: rect.left,
+          proposalId,
+          isInsertion,
+        });
         return true;
       },
     },
@@ -132,65 +144,20 @@ export function DocumentEditor({
     }
   }, [editor, editProposals]);
 
-  function showTrackChangePopup(
-    rect: DOMRect,
-    proposalId: string,
-    isInsertion: boolean,
-    _isDeletion: boolean,
-  ) {
-    const existing = document.getElementById("track-change-popup");
-    if (existing) existing.remove();
-
-    const popup = document.createElement("div");
-    popup.id = "track-change-popup";
-    popup.style.cssText = `
-      position: fixed;
-      top: ${rect.bottom + 4}px;
-      left: ${rect.left}px;
-      z-index: 9999;
-      background: white;
-      border: 1px solid #e2e8f0;
-      border-radius: 6px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      padding: 6px;
-      display: flex;
-      gap: 4px;
-    `;
-
-    const acceptBtn = document.createElement("button");
-    acceptBtn.textContent = "Accept";
-    acceptBtn.style.cssText =
-      "padding: 4px 10px; font-size: 11px; font-weight: 600; background: #22c55e; color: white; border: none; border-radius: 4px; cursor: pointer;";
-    acceptBtn.onclick = () => {
-      if (!editorRef.current) return;
-      acceptTrackChange(editorRef.current, proposalId, isInsertion);
-      onProposalAccepted?.(proposalId);
-      popup.remove();
-    };
-
-    const rejectBtn = document.createElement("button");
-    rejectBtn.textContent = "Reject";
-    rejectBtn.style.cssText =
-      "padding: 4px 10px; font-size: 11px; font-weight: 600; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer;";
-    rejectBtn.onclick = () => {
-      if (!editorRef.current) return;
-      rejectTrackChange(editorRef.current, proposalId, isInsertion);
-      onProposalRejected?.(proposalId);
-      popup.remove();
-    };
-
-    popup.appendChild(acceptBtn);
-    popup.appendChild(rejectBtn);
-    document.body.appendChild(popup);
-
+  useEffect(() => {
+    if (!trackPopup) return;
     const dismiss = (e: MouseEvent) => {
-      if (!popup.contains(e.target as Node)) {
-        popup.remove();
-        document.removeEventListener("mousedown", dismiss);
+      const popup = document.getElementById("track-change-popup");
+      if (popup && !popup.contains(e.target as Node)) {
+        setTrackPopup(null);
       }
     };
-    setTimeout(() => document.addEventListener("mousedown", dismiss), 0);
-  }
+    const timer = setTimeout(() => document.addEventListener("mousedown", dismiss), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", dismiss);
+    };
+  }, [trackPopup]);
 
   return (
     <div className="flex h-full flex-col">
@@ -200,6 +167,42 @@ export function DocumentEditor({
           <EditorContent editor={editor} />
         </EditorPage>
       </div>
+      {trackPopup &&
+        createPortal(
+          <div
+            id="track-change-popup"
+            role="dialog"
+            aria-label="Track change actions"
+            style={{ position: "fixed", top: trackPopup.top, left: trackPopup.left, zIndex: 9999 }}
+            className="flex gap-1 rounded-md border border-border bg-card p-1.5 shadow-lg"
+          >
+            <button
+              type="button"
+              className="rounded px-2.5 py-1 text-[11px] font-semibold text-white bg-green-500 hover:bg-green-600 transition-colors"
+              onClick={() => {
+                if (!editorRef.current) return;
+                acceptTrackChange(editorRef.current, trackPopup.proposalId, trackPopup.isInsertion);
+                onProposalAccepted?.(trackPopup.proposalId);
+                setTrackPopup(null);
+              }}
+            >
+              Accept
+            </button>
+            <button
+              type="button"
+              className="rounded px-2.5 py-1 text-[11px] font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors"
+              onClick={() => {
+                if (!editorRef.current) return;
+                rejectTrackChange(editorRef.current, trackPopup.proposalId, trackPopup.isInsertion);
+                onProposalRejected?.(trackPopup.proposalId);
+                setTrackPopup(null);
+              }}
+            >
+              Reject
+            </button>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

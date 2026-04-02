@@ -1,5 +1,6 @@
 import { gemini, GEMINI_MODEL } from "@/src/lib/gemini";
 import {
+  askCitationSchema,
   askModeResponseSchema,
   planModeResponseSchema,
   editModeResponseSchema,
@@ -32,13 +33,24 @@ ${chunk.text}`,
     .join("\n\n");
 }
 
-export async function callGeminiAsk(
-  question: string,
-  chunks: RankedChunk[],
-): Promise<AskModeResponse> {
-  const chunkContext = formatChunksForPrompt(chunks);
+const ASK_RESPONSE_GUIDELINES = `Response guidelines:
+- Be direct and concise. Answer in 2-4 sentences unless the question genuinely requires more detail.
+- Use **bold** for key legal terms and defined terms.
+- Use bullet points only when listing multiple distinct items.
+- Do not add unsolicited analysis, headings, blockquotes, or "Practical Recommendation" sections.`;
 
-  const systemInstruction = `You are a senior contract attorney. Answer questions about contracts with precision and authority.
+const CITATION_RULES = `Citation rules:
+- Only use documentId, versionId, and chunkId values that appear verbatim in the provided chunks.
+- Cite only the chunks that directly support your answer.
+- If no chunks are relevant, return an empty citations array and explain in the answer.
+- Do not invent or paraphrase IDs.`;
+
+function buildAskSystemInstruction(options: { jsonMode: boolean }): string {
+  const preamble =
+    "You are a senior contract attorney. Answer questions about contracts with precision and authority.";
+
+  if (options.jsonMode) {
+    return `${preamble}
 
 Your response MUST be valid JSON matching this exact structure:
 {
@@ -53,18 +65,22 @@ Your response MUST be valid JSON matching this exact structure:
   ]
 }
 
-Response guidelines:
-- Be direct and concise. Answer in 2-4 sentences unless the question genuinely requires more detail.
-- Use **bold** for key legal terms and defined terms.
-- Use bullet points only when listing multiple distinct items.
-- Do not add unsolicited analysis, headings, blockquotes, or "Practical Recommendation" sections.
+${ASK_RESPONSE_GUIDELINES}
 
-Citation rules:
-- Only use documentId, versionId, and chunkId values that appear verbatim in the provided chunks.
-- Cite only the chunks that directly support your answer.
-- If no chunks are relevant, return an empty citations array and explain in the answer.
-- Do not invent or paraphrase IDs.`;
+${CITATION_RULES}`;
+  }
 
+  return `${preamble}
+
+${ASK_RESPONSE_GUIDELINES}`;
+}
+
+export async function callGeminiAsk(
+  question: string,
+  chunks: RankedChunk[],
+): Promise<AskModeResponse> {
+  const chunkContext = formatChunksForPrompt(chunks);
+  const systemInstruction = buildAskSystemInstruction({ jsonMode: true });
   const userPrompt = `Document excerpts:\n\n${chunkContext}\n\nQuestion: ${question}`;
 
   const response = await gemini.models.generateContent({
@@ -80,16 +96,17 @@ Citation rules:
   return askModeResponseSchema.parse(raw);
 }
 
+export type StreamAskResult = {
+  answer: string;
+  citations: AskModeResponse["citations"];
+};
+
 export async function* streamGeminiAsk(
   question: string,
   chunks: RankedChunk[],
-): AsyncGenerator<string, string> {
+): AsyncGenerator<string, StreamAskResult> {
   const chunkContext = formatChunksForPrompt(chunks);
-
-  const systemInstruction = `You are a senior contract attorney. Answer questions about contracts with precision and authority.
-
-Be direct and concise. Answer in 2-4 sentences unless the question genuinely requires more detail. Use **bold** for key legal terms and defined terms. Use bullet points only when listing multiple distinct items. Do not add unsolicited analysis, headings, blockquotes, or extra sections.`;
-
+  const systemInstruction = buildAskSystemInstruction({ jsonMode: false });
   const userPrompt = `Document excerpts:\n\n${chunkContext}\n\nQuestion: ${question}`;
 
   const response = await gemini.models.generateContentStream({
@@ -106,7 +123,47 @@ Be direct and concise. Answer in 2-4 sentences unless the question genuinely req
       yield text;
     }
   }
-  return accumulated;
+
+  const citations = await extractCitations(accumulated, chunks);
+  return { answer: accumulated, citations };
+}
+
+async function extractCitations(
+  answer: string,
+  chunks: RankedChunk[],
+): Promise<AskModeResponse["citations"]> {
+  const chunkSummary = chunks
+    .map(
+      (c, i) =>
+        `[Chunk ${i + 1}] documentId=${c.documentId} versionId=${c.versionId} chunkId=${c.chunkId}\n${c.text.slice(0, 300)}`,
+    )
+    .join("\n\n");
+
+  try {
+    const response = await gemini.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: `Given this answer and the source chunks, return ONLY a JSON array of citations for chunks that directly support the answer. Each citation must use exact IDs from the chunks.\n\nAnswer:\n${answer}\n\nSource chunks:\n${chunkSummary}`,
+            },
+          ],
+        },
+      ],
+      config: {
+        systemInstruction: `Return a JSON array of citation objects. Each object has: documentId, versionId, chunkId, snippet (max 240 chars from the chunk text). Only cite chunks that directly support the answer. ${CITATION_RULES}`,
+        responseMimeType: "application/json",
+      },
+    });
+
+    const raw = JSON.parse(response.text ?? "[]");
+    const arr = Array.isArray(raw) ? raw : raw.citations ?? [];
+    return askCitationSchema.array().parse(arr);
+  } catch {
+    return [];
+  }
 }
 
 export async function callGeminiPlan(

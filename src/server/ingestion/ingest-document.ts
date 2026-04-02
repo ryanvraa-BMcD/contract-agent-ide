@@ -1,4 +1,4 @@
-import { prisma } from "@/src/lib/prisma";
+import { prisma, type TransactionClient } from "@/src/lib/prisma";
 import type { LegalChunk, ParsedDocument } from "@/src/types/document";
 import { chunkLegalContent } from "@/src/server/ingestion/chunk-legal";
 import { convertDocToDocxIfNeeded } from "@/src/server/ingestion/convert-doc";
@@ -35,8 +35,11 @@ function deriveDocumentTitle(filename: string, explicitTitle?: string) {
   return filename.replace(/\.(doc|docx|pdf)$/i, "").trim() || "Untitled Document";
 }
 
-async function resolveDocumentVersionNumber(documentId: string) {
-  const latest = await prisma.documentVersion.findFirst({
+async function resolveDocumentVersionNumber(
+  documentId: string,
+  tx: TransactionClient,
+) {
+  const latest = await tx.documentVersion.findFirst({
     where: { documentId },
     orderBy: { versionNumber: "desc" },
     select: { versionNumber: true },
@@ -59,7 +62,7 @@ async function persistIngestionArtifacts(params: {
 }) {
   const { input, sourceLabel, normalizedMimeType, parsed, chunks } = params;
 
-  return prisma.$transaction(async (tx: any) => {
+  return prisma.$transaction(async (tx: TransactionClient) => {
     const document =
       input.documentId
         ? await tx.document.findFirst({
@@ -85,7 +88,7 @@ async function persistIngestionArtifacts(params: {
         },
       }));
 
-    const versionNumber = await resolveDocumentVersionNumber(ensuredDocument.id);
+    const versionNumber = await resolveDocumentVersionNumber(ensuredDocument.id, tx);
 
     const documentVersion = await tx.documentVersion.create({
       data: {

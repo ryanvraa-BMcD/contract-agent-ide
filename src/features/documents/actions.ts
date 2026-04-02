@@ -1,5 +1,5 @@
 import { DocumentRole } from "@prisma/client";
-import { prisma } from "@/src/lib/prisma";
+import { prisma, type TransactionClient } from "@/src/lib/prisma";
 import { createDocumentSchema } from "@/src/lib/validation";
 
 const DOC_MIME_TYPE = "application/msword";
@@ -101,7 +101,7 @@ type CreateDocumentInput = {
 export async function createDocumentMetadata(input: CreateDocumentInput) {
   const parsed = createDocumentSchema.parse(input);
 
-  return prisma.$transaction(async (tx: any) => {
+  return prisma.$transaction(async (tx: TransactionClient) => {
     const document = await tx.document.create({
       data: {
         projectId: parsed.projectId,

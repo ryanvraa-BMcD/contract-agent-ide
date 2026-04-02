@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { AgentMode, AgentRunStatus, MessageRole } from "@prisma/client";
-import { prisma } from "@/src/lib/prisma";
+import { prisma, type TransactionClient } from "@/src/lib/prisma";
 import { sendChatMessageStub, getOrCreateThread } from "@/src/features/chat/actions";
 import { chatRequestSchema } from "@/src/lib/validation";
 import { streamGeminiAsk } from "@/src/server/ai/gemini-calls";
@@ -8,11 +8,10 @@ import { buildGroundedAskContext } from "@/src/server/retrieval/build-context";
 import { runAskMode } from "@/src/server/ai/run-ask";
 import { runPlanMode } from "@/src/server/ai/run-plan";
 import { runEditMode } from "@/src/server/ai/run-edit";
+import { parseJsonBody } from "@/src/lib/api-helpers";
 
 type ChatRouteContext = {
-  params: Promise<{
-    projectId: string;
-  }>;
+  params: Promise<{ projectId: string }>;
 };
 
 function sseEvent(data: Record<string, unknown>): string {
@@ -58,12 +57,9 @@ function createSSEResponse(handler: (encoder: TextEncoder, enqueue: (chunk: stri
 
 export async function POST(request: Request, context: ChatRouteContext) {
   const { projectId } = await context.params;
-  const body = await request.json();
-  const parsed = chatRequestSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid chat request payload." }, { status: 400 });
-  }
+  const result = await parseJsonBody(request, chatRequestSchema);
+  if (result.error) return result.error;
+  const parsed = { data: result.data };
 
   const acceptsStream = request.headers.get("accept")?.includes("text/event-stream");
 
@@ -89,10 +85,14 @@ export async function POST(request: Request, context: ChatRouteContext) {
 
             const gen = streamGeminiAsk(parsed.data.content, ctx.rankedChunks);
             let fullAnswer = "";
+            let citations: { documentId: string; versionId: string; chunkId: string; snippet: string }[] = [];
             while (true) {
               const { value, done } = await gen.next();
               if (done) {
-                if (typeof value === "string") fullAnswer = value;
+                if (value) {
+                  fullAnswer = value.answer;
+                  citations = value.citations;
+                }
                 break;
               }
               enqueue(sseEvent({ type: "token", token: value }));
@@ -100,14 +100,7 @@ export async function POST(request: Request, context: ChatRouteContext) {
 
             if (!fullAnswer) fullAnswer = "(No response generated)";
 
-            const citations = ctx.rankedChunks.slice(0, 3).map((c) => ({
-              documentId: c.documentId,
-              versionId: c.versionId,
-              chunkId: c.chunkId,
-              snippet: c.text.slice(0, 240),
-            }));
-
-            const saved = await prisma.$transaction(async (tx: any) => {
+            const saved = await prisma.$transaction(async (tx: TransactionClient) => {
               const userMessage = await tx.chatMessage.create({
                 data: { threadId: thread.id, role: MessageRole.USER, content: parsed.data.content },
                 select: { id: true, role: true, content: true, createdAt: true },

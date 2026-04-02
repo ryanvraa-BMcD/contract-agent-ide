@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  FormEvent,
   KeyboardEvent,
   useState,
   useRef,
@@ -26,27 +25,14 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { ReviewProposal } from "@/src/features/review/types";
 import type { WorkspaceMode } from "@/src/lib/validation";
+import type { WorkspaceMessage } from "@/src/types/workspace";
+import { useSSEChat } from "@/src/features/chat/hooks/use-sse-chat";
 import { MarkdownMessage } from "./markdown-message";
-
-type UiCitation = {
-  documentId: string;
-  versionId: string;
-  chunkId: string;
-  snippet: string;
-};
-
-type UiMessage = {
-  id: string;
-  role: "USER" | "ASSISTANT" | "SYSTEM";
-  content: string;
-  createdAt: string;
-  citations?: UiCitation[];
-};
 
 type ChatPanelProps = {
   projectId: string;
   initialThreadId: string | null;
-  initialMessages: UiMessage[];
+  initialMessages: WorkspaceMessage[];
   mode: WorkspaceMode;
   onModeChange: (mode: WorkspaceMode) => void;
   selectedDocumentIds: string[];
@@ -54,28 +40,6 @@ type ChatPanelProps = {
   documentTitleById: Record<string, string>;
   onEditProposals: (proposals: ReviewProposal[]) => void;
   editProposals: ReviewProposal[];
-};
-
-type ChatResponse = {
-  threadId: string;
-  userMessage: UiMessage;
-  assistantMessage: UiMessage;
-  agentRunId: string;
-  citations?: UiCitation[];
-  edit?: {
-    proposals: ReviewProposal[];
-  };
-};
-
-type StreamEvent = {
-  type: "token" | "done" | "error" | "thinking" | "status";
-  token?: string;
-  text?: string;
-  message?: UiMessage;
-  citations?: UiCitation[];
-  threadId?: string;
-  edit?: { proposals: ReviewProposal[] };
-  error?: string;
 };
 
 const MODE_CONFIG: Record<WorkspaceMode, { icon: LucideIcon; label: string }> = {
@@ -86,22 +50,6 @@ const MODE_CONFIG: Record<WorkspaceMode, { icon: LucideIcon; label: string }> = 
 };
 
 const MODES: WorkspaceMode[] = ["Ask", "Plan", "Edit", "Compare"];
-
-function normalizeCitations(value: unknown): UiCitation[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item) => {
-      if (!item || typeof item !== "object") return false;
-      const citation = item as Record<string, unknown>;
-      return (
-        typeof citation.documentId === "string" &&
-        typeof citation.versionId === "string" &&
-        typeof citation.chunkId === "string" &&
-        typeof citation.snippet === "string"
-      );
-    })
-    .map((item) => item as UiCitation);
-}
 
 function formatTime(dateStr: string) {
   const date = new Date(dateStr);
@@ -126,15 +74,19 @@ export function ChatPanel({
   onEditProposals,
   editProposals,
 }: ChatPanelProps) {
-  const [threadId, setThreadId] = useState<string | null>(initialThreadId);
-  const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
+  const {
+    messages,
+    isSending,
+    isStreaming,
+    streamingContent,
+    error,
+    statusText,
+    sendMessage,
+    resetChat,
+  } = useSSEChat({ projectId, initialThreadId, initialMessages, onEditProposals });
+
   const [pendingText, setPendingText] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingContent, setStreamingContent] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [expandedCitations, setExpandedCitations] = useState<Set<string>>(new Set());
-  const [statusText, setStatusText] = useState<string | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
 
@@ -194,16 +146,11 @@ export function ChatPanel({
   };
 
   const handleNewChat = useCallback(() => {
-    if (isSending || isStreaming) return;
-    setThreadId(null);
-    setMessages([]);
-    setStreamingContent("");
-    setStatusText(null);
-    setError(null);
+    resetChat();
     setExpandedCitations(new Set());
     setPendingText("");
     textareaRef.current?.focus();
-  }, [isSending, isStreaming]);
+  }, [resetChat]);
 
   useEffect(() => {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -216,149 +163,9 @@ export function ChatPanel({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [handleNewChat]);
 
-  const submitMessage = async (event?: FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
-    const content = pendingText.trim();
-    if (!content || isSending) return;
-
-    setIsSending(true);
-    setError(null);
-
-    const optimisticUser: UiMessage = {
-      id: `temp-${Date.now()}`,
-      role: "USER",
-      content,
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, optimisticUser]);
+  const submitMessage = () => {
+    sendMessage(pendingText, mode, selectedDocumentIds);
     setPendingText("");
-
-    try {
-      const useSSE = mode === "Ask" || mode === "Plan" || mode === "Edit";
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (useSSE) {
-        headers["Accept"] = "text/event-stream";
-      }
-
-      const response = await fetch(`/api/projects/${projectId}/chat`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          content,
-          mode,
-          threadId: threadId ?? undefined,
-          selectedDocumentIds,
-        }),
-      });
-
-      if (!response.ok) {
-        const failure = (await response.json()) as { error?: string };
-        throw new Error(failure.error || "Failed to send chat message.");
-      }
-
-      const contentType = response.headers.get("content-type") || "";
-
-      if (contentType.includes("text/event-stream")) {
-        setIsStreaming(true);
-        setStreamingContent("");
-        setStatusText(null);
-
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-        let accumulated = "";
-        let buffer = "";
-
-        if (reader) {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const data = line.slice(6);
-              if (data === "[DONE]") continue;
-
-              try {
-                const event: StreamEvent = JSON.parse(data);
-
-                if (event.type === "status" && event.text) {
-                  setStatusText(event.text);
-                } else if (event.type === "token" && event.token) {
-                  setStatusText(null);
-                  accumulated += event.token;
-                  setStreamingContent(accumulated);
-                } else if (event.type === "done" && event.message) {
-                  if (event.threadId) setThreadId(event.threadId);
-                  const assistantWithCitations: UiMessage = {
-                    ...event.message,
-                    citations: normalizeCitations(event.citations),
-                  };
-                  setMessages((prev) => {
-                    const withoutOptimistic = prev.filter(
-                      (m) => m.id !== optimisticUser.id,
-                    );
-                    return [
-                      ...withoutOptimistic,
-                      { ...optimisticUser, id: event.message!.id + "-user" },
-                      assistantWithCitations,
-                    ];
-                  });
-                  if (event.edit?.proposals) {
-                    onEditProposals(event.edit.proposals);
-                  }
-                } else if (event.type === "error" && event.error) {
-                  setError(event.error);
-                }
-              } catch {
-                // skip malformed event
-              }
-            }
-          }
-        }
-        setIsStreaming(false);
-        setStreamingContent("");
-        setStatusText(null);
-      } else {
-        const payload = (await response.json()) as ChatResponse;
-        setThreadId(payload.threadId);
-        const assistantWithCitations: UiMessage = {
-          ...payload.assistantMessage,
-          citations: normalizeCitations(
-            payload.citations ?? payload.assistantMessage.citations,
-          ),
-        };
-        setMessages((prev) => {
-          const withoutOptimistic = prev.filter(
-            (m) => m.id !== optimisticUser.id,
-          );
-          return [
-            ...withoutOptimistic,
-            payload.userMessage,
-            assistantWithCitations,
-          ];
-        });
-        if (payload.edit?.proposals) {
-          onEditProposals(payload.edit.proposals);
-        }
-      }
-    } catch (chatError) {
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id));
-      setError(
-        chatError instanceof Error
-          ? chatError.message
-          : "Failed to send chat message.",
-      );
-      setIsStreaming(false);
-      setStreamingContent("");
-    } finally {
-      setIsSending(false);
-    }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -390,6 +197,8 @@ export function ChatPanel({
             <div ref={modeDropdownRef} className="relative">
               <button
                 type="button"
+                aria-haspopup="listbox"
+                aria-expanded={modeDropdownOpen}
                 onClick={() => setModeDropdownOpen((prev) => !prev)}
                 className="flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1 text-[11px] font-medium text-card-foreground transition-colors hover:bg-muted/80"
               >
@@ -398,7 +207,7 @@ export function ChatPanel({
                 <ChevronDown size={11} className={`text-muted-foreground transition-transform ${modeDropdownOpen ? "rotate-180" : ""}`} />
               </button>
               {modeDropdownOpen && (
-                <div className="absolute right-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                <div role="listbox" aria-label="Chat mode" className="absolute right-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
                   {MODES.map((m) => {
                     const config = MODE_CONFIG[m];
                     const Icon = config.icon;
@@ -406,6 +215,8 @@ export function ChatPanel({
                       <button
                         key={m}
                         type="button"
+                        role="option"
+                        aria-selected={mode === m}
                         onClick={() => { onModeChange(m); setModeDropdownOpen(false); }}
                         className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-medium transition-colors ${
                           mode === m
@@ -487,7 +298,6 @@ export function ChatPanel({
                   key={message.id}
                   className={`animate-fade-in flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}
                 >
-                  {/* Avatar */}
                   <div
                     className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
                       isUser
@@ -498,7 +308,6 @@ export function ChatPanel({
                     {isUser ? <User size={14} /> : <Scale size={14} />}
                   </div>
 
-                  {/* Content */}
                   <div className={`min-w-0 max-w-[85%] ${isUser ? "text-right" : ""}`}>
                     <div
                       className={`rounded-2xl px-4 py-3 ${
@@ -516,7 +325,6 @@ export function ChatPanel({
                       )}
                     </div>
 
-                    {/* Citations */}
                     {hasCitations && (
                       <div className="mt-1.5">
                         <button
@@ -557,7 +365,6 @@ export function ChatPanel({
             })
           )}
 
-          {/* Streaming response */}
           {isStreaming && streamingContent && (
             <article className="animate-fade-in flex gap-3">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
@@ -571,7 +378,6 @@ export function ChatPanel({
             </article>
           )}
 
-          {/* Typing / status indicator */}
           {((isSending && !streamingContent) || (isStreaming && statusText && !streamingContent)) && (
             <div className="animate-fade-in flex gap-3">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
@@ -590,7 +396,6 @@ export function ChatPanel({
             </div>
           )}
 
-          {/* Edit proposals summary */}
           {editProposals.length > 0 && (
             <div className="animate-fade-in rounded-xl border border-warning/30 bg-warning/5 px-4 py-3">
               <p className="text-xs font-semibold text-warning">
@@ -614,7 +419,6 @@ export function ChatPanel({
 
         <div ref={messagesEndRef} />
 
-        {/* Scroll to bottom button */}
         {showScrollBtn && (
           <button
             type="button"
@@ -633,7 +437,7 @@ export function ChatPanel({
             {error}
           </div>
         )}
-        <form onSubmit={submitMessage} className="flex items-end gap-2">
+        <form onSubmit={(e) => { e.preventDefault(); submitMessage(); }} className="flex items-end gap-2">
           <div className="relative min-w-0 flex-1">
             <textarea
               ref={textareaRef}

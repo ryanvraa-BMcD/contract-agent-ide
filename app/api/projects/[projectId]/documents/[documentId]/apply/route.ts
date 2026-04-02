@@ -1,49 +1,19 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/src/lib/prisma";
+import { prisma, type TransactionClient } from "@/src/lib/prisma";
 import { applyDeterministicOperations } from "@/src/server/editing/apply-operations";
 import type { PersistedOperation } from "@/src/server/editing/operations";
 import { buildApplyDiffPayload } from "@/src/server/editing/diff";
 import { validateOperationsForApply } from "@/src/server/editing/validate-operations";
+import { notFound, badRequest, conflict, serverError, parseJsonBody } from "@/src/lib/api-helpers";
+import { applyOperationsSchema } from "@/src/lib/validation";
 
 type RouteContext = {
-  params: Promise<{
-    projectId: string;
-    documentId: string;
-  }>;
+  params: Promise<{ projectId: string; documentId: string }>;
 };
-
-type ApplyRequestBody = {
-  targetVersionId: string;
-  operationIds: string[];
-};
-
-function parseRequestBody(body: unknown): ApplyRequestBody {
-  if (!body || typeof body !== "object") {
-    throw new Error("Request body must be an object.");
-  }
-  const candidate = body as Record<string, unknown>;
-  const targetVersionId = candidate.targetVersionId;
-  const operationIds = candidate.operationIds;
-  if (typeof targetVersionId !== "string" || !targetVersionId.trim()) {
-    throw new Error("targetVersionId is required.");
-  }
-  if (!Array.isArray(operationIds) || operationIds.length === 0) {
-    throw new Error("operationIds must be a non-empty array.");
-  }
-  const parsedIds = operationIds.filter((item): item is string => typeof item === "string" && item.length > 0);
-  if (parsedIds.length !== operationIds.length) {
-    throw new Error("operationIds must contain only non-empty strings.");
-  }
-  return {
-    targetVersionId: targetVersionId.trim(),
-    operationIds: parsedIds,
-  };
-}
 
 function hashTextContent(text: string) {
   const encoder = new TextEncoder();
   const bytes = encoder.encode(text);
-  // Lightweight checksum placeholder until crypto digest integration.
   let hash = 0;
   for (const byte of bytes) {
     hash = (hash * 31 + byte) >>> 0;
@@ -54,16 +24,9 @@ function hashTextContent(text: string) {
 export async function POST(request: Request, context: RouteContext) {
   const { projectId, documentId } = await context.params;
 
-  let body: ApplyRequestBody;
-  try {
-    const parsedBody = await request.json();
-    body = parseRequestBody(parsedBody);
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Invalid request payload." },
-      { status: 400 }
-    );
-  }
+  const result = await parseJsonBody(request, applyOperationsSchema);
+  if (result.error) return result.error;
+  const body = result.data;
 
   const targetVersion = await prisma.documentVersion.findFirst({
     where: {
@@ -82,9 +45,7 @@ export async function POST(request: Request, context: RouteContext) {
     },
   });
 
-  if (!targetVersion) {
-    return NextResponse.json({ error: "Target version not found." }, { status: 404 });
-  }
+  if (!targetVersion) return notFound("Target version");
 
   const operations = await prisma.editOperation.findMany({
     where: {
@@ -107,10 +68,7 @@ export async function POST(request: Request, context: RouteContext) {
   });
 
   if (operations.length !== body.operationIds.length) {
-    return NextResponse.json(
-      { error: "One or more operations were not found for this project/document." },
-      { status: 400 }
-    );
+    return badRequest("One or more operations were not found for this project/document.");
   }
 
   const chunks = await prisma.documentChunk.findMany({
@@ -138,12 +96,9 @@ export async function POST(request: Request, context: RouteContext) {
       error instanceof Error ? error.message : "Operation validation failed.";
     await prisma.editOperation.updateMany({
       where: { id: { in: body.operationIds } },
-      data: {
-        applyStatus: "FAILED",
-        applyError: message,
-      },
+      data: { applyStatus: "FAILED", applyError: message },
     });
-    return NextResponse.json({ error: message }, { status: 409 });
+    return conflict(message);
   }
 
   let applyResult;
@@ -157,16 +112,13 @@ export async function POST(request: Request, context: RouteContext) {
       error instanceof Error ? error.message : "Failed to apply operations.";
     await prisma.editOperation.updateMany({
       where: { id: { in: body.operationIds } },
-      data: {
-        applyStatus: "FAILED",
-        applyError: message,
-      },
+      data: { applyStatus: "FAILED", applyError: message },
     });
-    return NextResponse.json({ error: message }, { status: 409 });
+    return conflict(message);
   }
 
   try {
-    const persisted = await prisma.$transaction(async (tx: any) => {
+    const persisted = await prisma.$transaction(async (tx: TransactionClient) => {
       const latest = await tx.documentVersion.findFirst({
         where: { documentId },
         orderBy: { versionNumber: "desc" },
@@ -231,11 +183,8 @@ export async function POST(request: Request, context: RouteContext) {
       error instanceof Error ? error.message : "Failed to persist applied version.";
     await prisma.editOperation.updateMany({
       where: { id: { in: body.operationIds } },
-      data: {
-        applyStatus: "FAILED",
-        applyError: message,
-      },
+      data: { applyStatus: "FAILED", applyError: message },
     });
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(message);
   }
 }

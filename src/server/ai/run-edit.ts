@@ -5,7 +5,7 @@ import {
   EditOperationType,
   MessageRole,
 } from "@prisma/client";
-import { prisma } from "@/src/lib/prisma";
+import { prisma, type TransactionClient } from "@/src/lib/prisma";
 import { getOrCreateThread } from "@/src/features/chat/actions";
 import { buildGroundedAskContext } from "@/src/server/retrieval/build-context";
 import { type EditModeResponse } from "@/src/server/ai/schemas";
@@ -116,7 +116,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
 
   input.onContextReady?.();
 
-  const initial = await prisma.$transaction(async (tx: any) => {
+  const initial = await prisma.$transaction(async (tx: TransactionClient) => {
     const userMessage = await tx.chatMessage.create({
       data: {
         threadId: thread.id,
@@ -161,7 +161,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
     const assistantContent = renderEditSummary(edit);
     const citations = edit.proposals.flatMap((proposal) => proposal.citations);
 
-    const result = await prisma.$transaction(async (tx: any) => {
+    const result = await prisma.$transaction(async (tx: TransactionClient) => {
       for (const proposal of edit.proposals) {
         const target = proposal.operations[0]?.target ?? proposal.citations[0];
         const createdProposal = await tx.editProposal.create({
@@ -240,7 +240,7 @@ export async function runEditMode(input: RunEditModeInput): Promise<RunEditModeR
       error instanceof Error ? error.message : "Edit proposal generation failed safely.";
     const assistantContent = `Unable to generate safe edit proposals: ${errorMessage}`;
 
-    const failed = await prisma.$transaction(async (tx: any) => {
+    const failed = await prisma.$transaction(async (tx: TransactionClient) => {
       const assistantMessage = await tx.chatMessage.create({
         data: {
           threadId: thread.id,

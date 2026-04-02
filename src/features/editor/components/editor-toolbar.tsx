@@ -22,6 +22,7 @@ import {
   Download,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useToast } from "@/src/features/workspace/components/toast";
 
 type EditorToolbarProps = {
   editor: Editor | null;
@@ -154,6 +155,8 @@ const toolbarItems: ToolbarItem[] = [
 ];
 
 export function EditorToolbar({ editor, activeDocumentId, projectId }: EditorToolbarProps) {
+  const { toast } = useToast();
+
   if (!editor) return null;
 
   const handleExport = async () => {
@@ -162,7 +165,9 @@ export function EditorToolbar({ editor, activeDocumentId, projectId }: EditorToo
       const res = await fetch(
         `/api/projects/${projectId}/documents/${activeDocumentId}/export`,
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        throw new Error("Export request failed.");
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -170,8 +175,9 @@ export function EditorToolbar({ editor, activeDocumentId, projectId }: EditorToo
       a.download = "document.docx";
       a.click();
       URL.revokeObjectURL(url);
+      toast("Document exported successfully.", "success");
     } catch {
-      // silently fail
+      toast("Failed to export document.", "error");
     }
   };
 

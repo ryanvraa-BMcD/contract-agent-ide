@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/src/lib/prisma";
+import { prisma, type TransactionClient } from "@/src/lib/prisma";
 import { storage } from "@/src/lib/storage";
 import { parseDocx } from "@/src/server/ingestion/parse-docx";
 import { chunkLegalContent } from "@/src/server/ingestion/chunk-legal";
+import { notFound, badRequest, serverError } from "@/src/lib/api-helpers";
 
 export const runtime = "nodejs";
 
 type RouteContext = {
-  params: Promise<{
-    projectId: string;
-    documentId: string;
-  }>;
+  params: Promise<{ projectId: string; documentId: string }>;
 };
 
 export async function POST(_request: Request, context: RouteContext) {
@@ -27,12 +25,10 @@ export async function POST(_request: Request, context: RouteContext) {
     },
   });
 
-  if (!document) {
-    return NextResponse.json({ error: "Document not found." }, { status: 404 });
-  }
+  if (!document) return notFound("Document");
 
   if (!document.activeVersionId) {
-    return NextResponse.json({ error: "No active version." }, { status: 400 });
+    return badRequest("No active version.");
   }
 
   try {
@@ -46,7 +42,7 @@ export async function POST(_request: Request, context: RouteContext) {
 
     const chunks = chunkLegalContent({ parsedDocument: parsed });
 
-    await prisma.$transaction(async (tx: any) => {
+    await prisma.$transaction(async (tx: TransactionClient) => {
       await tx.documentVersion.update({
         where: { id: document.activeVersionId },
         data: {
@@ -86,9 +82,6 @@ export async function POST(_request: Request, context: RouteContext) {
     });
   } catch (err) {
     console.error("Re-ingest failed:", err);
-    return NextResponse.json(
-      { error: "Failed to re-ingest document." },
-      { status: 500 },
-    );
+    return serverError("Failed to re-ingest document.");
   }
 }

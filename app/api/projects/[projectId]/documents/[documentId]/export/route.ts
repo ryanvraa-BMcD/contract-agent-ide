@@ -3,12 +3,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { exportDocumentVersionToDocx } from "@/src/server/export/export-docx";
 import { parseStyleSettings } from "@/src/types/style-settings";
+import { notFound, badRequest, serverError } from "@/src/lib/api-helpers";
 
 type RouteContext = {
-  params: Promise<{
-    projectId: string;
-    documentId: string;
-  }>;
+  params: Promise<{ projectId: string; documentId: string }>;
 };
 
 type ExportRequestBody = {
@@ -37,40 +35,20 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     payload = parseExportRequestBody(await request.json());
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Invalid request payload." },
-      { status: 400 }
-    );
+    return badRequest(error instanceof Error ? error.message : "Invalid request payload.");
   }
 
   const document = await prisma.document.findFirst({
-    where: {
-      id: documentId,
-      projectId,
-    },
-    select: {
-      id: true,
-      title: true,
-    },
+    where: { id: documentId, projectId },
+    select: { id: true, title: true },
   });
-  if (!document) {
-    return NextResponse.json({ error: "Document not found." }, { status: 404 });
-  }
+  if (!document) return notFound("Document");
 
   const version = await prisma.documentVersion.findFirst({
-    where: {
-      id: payload.documentVersionId,
-      documentId,
-    },
-    select: {
-      id: true,
-      plainText: true,
-      structuredJson: true,
-    },
+    where: { id: payload.documentVersionId, documentId },
+    select: { id: true, plainText: true, structuredJson: true },
   });
-  if (!version) {
-    return NextResponse.json({ error: "Requested document version not found." }, { status: 404 });
-  }
+  if (!version) return notFound("Requested document version");
 
   const job = await prisma.exportJob.create({
     data: {

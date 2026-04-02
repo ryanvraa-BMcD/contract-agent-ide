@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { storage } from "@/src/lib/storage";
 import { extractDocxStyles } from "@/src/server/ingestion/extract-docx-styles";
+import { notFound, badRequest, serverError } from "@/src/lib/api-helpers";
 
 type RouteContext = {
   params: Promise<{ projectId: string }>;
@@ -14,17 +15,17 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    return badRequest("Invalid JSON body.");
   }
 
   if (!body || typeof body !== "object") {
-    return NextResponse.json({ error: "Request body must be an object." }, { status: 400 });
+    return badRequest("Request body must be an object.");
   }
 
   const payload = body as Record<string, unknown>;
   const documentId = payload.documentId;
   if (typeof documentId !== "string" || !documentId.trim()) {
-    return NextResponse.json({ error: "documentId is required." }, { status: 400 });
+    return badRequest("documentId is required.");
   }
 
   const document = await prisma.document.findFirst({
@@ -37,9 +38,7 @@ export async function POST(request: Request, context: RouteContext) {
     },
   });
 
-  if (!document) {
-    return NextResponse.json({ error: "Document not found." }, { status: 404 });
-  }
+  if (!document) return notFound("Document");
 
   const isDocx =
     document.originalMimeType ===
@@ -47,10 +46,7 @@ export async function POST(request: Request, context: RouteContext) {
     document.originalStorageKey.toLowerCase().endsWith(".docx");
 
   if (!isDocx) {
-    return NextResponse.json(
-      { error: "Style extraction is only supported for .docx files." },
-      { status: 400 },
-    );
+    return badRequest("Style extraction is only supported for .docx files.");
   }
 
   try {
@@ -63,6 +59,6 @@ export async function POST(request: Request, context: RouteContext) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to extract styles.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(message);
   }
 }

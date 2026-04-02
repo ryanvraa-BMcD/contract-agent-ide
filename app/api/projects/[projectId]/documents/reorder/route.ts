@@ -1,47 +1,18 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
+import { notFound, parseJsonBody } from "@/src/lib/api-helpers";
+import { reorderRequestSchema } from "@/src/lib/validation";
 
 type RouteContext = {
   params: Promise<{ projectId: string }>;
 };
 
-type OrderEntry = { id: string; sortOrder: number };
-
-function parseBody(body: unknown): OrderEntry[] {
-  if (!body || typeof body !== "object") {
-    throw new Error("Request body must be an object.");
-  }
-  const payload = body as Record<string, unknown>;
-  if (!Array.isArray(payload.orders)) {
-    throw new Error("orders must be an array.");
-  }
-  return payload.orders.map((entry: unknown) => {
-    if (!entry || typeof entry !== "object") {
-      throw new Error("Each order entry must be an object.");
-    }
-    const e = entry as Record<string, unknown>;
-    if (typeof e.id !== "string" || e.id.trim().length === 0) {
-      throw new Error("Each order entry must have a string id.");
-    }
-    if (typeof e.sortOrder !== "number" || !Number.isInteger(e.sortOrder)) {
-      throw new Error("Each order entry must have an integer sortOrder.");
-    }
-    return { id: e.id.trim(), sortOrder: e.sortOrder };
-  });
-}
-
 export async function PATCH(request: Request, context: RouteContext) {
   const { projectId } = await context.params;
 
-  let orders: OrderEntry[];
-  try {
-    orders = parseBody(await request.json());
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Invalid request payload." },
-      { status: 400 },
-    );
-  }
+  const result = await parseJsonBody(request, reorderRequestSchema);
+  if (result.error) return result.error;
+  const { orders } = result.data;
 
   if (orders.length === 0) {
     return NextResponse.json({ updated: 0 });
@@ -56,10 +27,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   const validOrders = orders.filter((o) => validIds.has(o.id));
   if (validOrders.length === 0) {
-    return NextResponse.json(
-      { error: "No matching documents found for this project." },
-      { status: 404 },
-    );
+    return notFound("No matching documents found for this project");
   }
 
   await prisma.$transaction(

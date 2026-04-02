@@ -2,67 +2,23 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Home,
-  FileText,
-  GitCompareArrows,
-  Eye,
-  Save,
-  PanelLeftClose,
-  PanelLeft,
-  ChevronRight,
-  Zap,
-  X,
-  Settings2,
-} from "lucide-react";
-import Link from "next/link";
+import { FileText } from "lucide-react";
 import { ChatPanel } from "@/src/features/chat/components/chat-panel";
 import { VersionHistoryCompare } from "@/src/features/compare/components/version-history-compare";
 import { DocumentSidebar } from "@/src/features/documents/components/document-sidebar";
 import { VersionTimeline } from "@/src/features/documents/components/version-timeline";
 import { DocumentEditor } from "@/src/features/editor/components/document-editor";
 import { DocumentPreview } from "@/src/features/editor/components/document-preview";
-import { ThemeToggle } from "@/src/features/workspace/components/theme-toggle";
 import { FormatSettingsDialog } from "@/src/features/workspace/components/format-settings-dialog";
+import { WorkspaceHeader } from "@/src/features/workspace/components/workspace-header";
+import { CenterViewTabs, type CenterView } from "@/src/features/workspace/components/center-view-tabs";
+import { ProposalBanner } from "@/src/features/workspace/components/proposal-banner";
+import { useToast } from "@/src/features/workspace/components/toast";
+import { usePanelResize } from "@/src/features/workspace/hooks/use-panel-resize";
 import type { ReviewProposal } from "@/src/features/review/types";
 import type { WorkspaceMode } from "@/src/lib/validation";
 import type { ProjectStyleSettings } from "@/src/types/style-settings";
-
-type WorkspaceDocument = {
-  id: string;
-  title: string;
-  role: "MAIN_AGREEMENT" | "EXHIBIT" | "REFERENCE";
-  originalFilename: string;
-  originalMimeType: string;
-  sizeBytes: number;
-  sortOrder: number;
-  updatedAt: string;
-  activeVersion: {
-    versionNumber: number;
-  } | null;
-  versions: {
-    id: string;
-    versionNumber: number;
-    createdAt: string;
-    sourceLabel: string | null;
-    createdBy: string | null;
-    plainText: string;
-    richJson?: unknown;
-  }[];
-};
-
-type WorkspaceMessage = {
-  id: string;
-  role: "USER" | "ASSISTANT" | "SYSTEM";
-  content: string;
-  createdAt: string;
-  citations?: {
-    documentId: string;
-    versionId: string;
-    chunkId: string;
-    snippet: string;
-  }[];
-};
+import type { WorkspaceDocument, WorkspaceMessage } from "@/src/types/workspace";
 
 type WorkspaceLayoutProps = {
   projectId: string;
@@ -72,8 +28,6 @@ type WorkspaceLayoutProps = {
   threadId: string | null;
   initialMessages: WorkspaceMessage[];
 };
-
-type CenterView = "editor" | "compare" | "preview";
 
 export function WorkspaceLayout({
   projectId,
@@ -99,77 +53,17 @@ export function WorkspaceLayout({
   const [editorDirty, setEditorDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [leftWidth, setLeftWidth] = useState(280);
-  const [rightWidth, setRightWidth] = useState(380);
-  const [timelineHeight, setTimelineHeight] = useState(200);
   const [timelineCollapsed, setTimelineCollapsed] = useState(false);
   const [formatSettingsOpen, setFormatSettingsOpen] = useState(false);
   const editorContentRef = useRef<Record<string, unknown> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleSaveVersionRef = useRef<() => Promise<void>>(async () => {});
   const router = useRouter();
+  const { toast } = useToast();
 
-  const startResizeLeft = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = leftWidth;
-    const onMove = (ev: MouseEvent) => {
-      const next = Math.min(480, Math.max(200, startWidth + ev.clientX - startX));
-      setLeftWidth(next);
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [leftWidth]);
-
-  const startResizeRight = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = rightWidth;
-    const onMove = (ev: MouseEvent) => {
-      // Right sidebar grows leftward, so delta is inverted.
-      const next = Math.min(600, Math.max(280, startWidth - (ev.clientX - startX)));
-      setRightWidth(next);
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [rightWidth]);
-
-  const startResizeTimeline = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startHeight = timelineHeight;
-    const onMove = (ev: MouseEvent) => {
-      // Dragging up increases timeline height (delta is inverted).
-      const next = Math.min(500, Math.max(80, startHeight - (ev.clientY - startY)));
-      setTimelineHeight(next);
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [timelineHeight]);
+  const left = usePanelResize(280, 200, 480);
+  const right = usePanelResize(380, 280, 600, "horizontal", true);
+  const timeline = usePanelResize(200, 80, 500, "vertical", true);
 
   const activeDocument = documents.find((d) => d.id === activeDocumentId) ?? null;
   const activeVersion =
@@ -187,13 +81,10 @@ export function WorkspaceLayout({
     [documents],
   );
 
-  const handleSelectVersion = useCallback(
-    (versionId: string) => {
-      setActiveVersionId(versionId);
-      setEditorDirty(false);
-    },
-    [],
-  );
+  const handleSelectVersion = useCallback((versionId: string) => {
+    setActiveVersionId(versionId);
+    setEditorDirty(false);
+  }, []);
 
   const toggleDocumentSelection = (documentId: string) => {
     setSelectedDocumentIds((current) =>
@@ -203,28 +94,25 @@ export function WorkspaceLayout({
     );
   };
 
-  const selectAllDocuments = () => {
-    setSelectedDocumentIds(documents.map((d) => d.id));
-  };
-
-  const clearSelectedDocuments = () => {
-    setSelectedDocumentIds([]);
-  };
+  const selectAllDocuments = () => setSelectedDocumentIds(documents.map((d) => d.id));
+  const clearSelectedDocuments = () => setSelectedDocumentIds([]);
 
   const handleReorder = useCallback(
     async (orders: { id: string; sortOrder: number }[]) => {
       try {
-        await fetch(`/api/projects/${projectId}/documents/reorder`, {
+        const res = await fetch(`/api/projects/${projectId}/documents/reorder`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ orders }),
         });
+        if (!res.ok) throw new Error("Reorder failed.");
         router.refresh();
       } catch {
-        // silently fail — refresh will restore correct state
+        toast("Failed to reorder documents.", "error");
+        router.refresh();
       }
     },
-    [projectId, router],
+    [projectId, router, toast],
   );
 
   const selectedDocumentTitles = documents
@@ -257,12 +145,15 @@ export function WorkspaceLayout({
       }
       setEditorDirty(false);
       router.refresh();
-    } catch {
-      // Could surface error in UI
+    } catch (e) {
+      toast(
+        e instanceof Error ? e.message : "Failed to save version.",
+        "error",
+      );
     } finally {
       setIsSaving(false);
     }
-  }, [activeDocumentId, projectId, router]);
+  }, [activeDocumentId, projectId, router, toast]);
 
   useEffect(() => {
     handleSaveVersionRef.current = handleSaveVersion;
@@ -295,51 +186,30 @@ export function WorkspaceLayout({
     setPendingProposals([]);
   }, []);
 
+  const handleProposalAccepted = useCallback((proposalId: string) => {
+    setEditProposals((prev) => prev.filter((p) => p.title !== proposalId));
+  }, []);
+
+  const handleProposalRejected = useCallback((proposalId: string) => {
+    setEditProposals((prev) => prev.filter((p) => p.title !== proposalId));
+  }, []);
+
   return (
     <div className="flex h-screen flex-col bg-background">
-      {/* Top header bar */}
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
-        <div className="flex items-center gap-2 text-sm">
-          <Link
-            href="/"
-            className="flex items-center gap-1 text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Home size={14} />
-            <span className="hidden sm:inline">Projects</span>
-          </Link>
-          <ChevronRight size={12} className="text-muted-foreground" />
-          <span className="font-medium text-foreground">{projectName}</span>
-        </div>
-        <div className="flex items-center gap-3">
-          {editorDirty && (
-            <button
-              type="button"
-              onClick={handleSaveVersion}
-              disabled={isSaving}
-              className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-            >
-              <Save size={13} />
-              {isSaving ? "Saving..." : "Save Version"}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setFormatSettingsOpen(true)}
-            title="Format Settings"
-            className="flex items-center gap-1.5 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <Settings2 size={15} />
-          </button>
-          <ThemeToggle />
-        </div>
-      </header>
+      <WorkspaceHeader
+        projectName={projectName}
+        editorDirty={editorDirty}
+        isSaving={isSaving}
+        onSave={handleSaveVersion}
+        onOpenSettings={() => setFormatSettingsOpen(true)}
+      />
 
       <div
         className="grid min-h-0 flex-1"
         style={{
           gridTemplateColumns: sidebarCollapsed
-            ? `0px 1fr ${rightWidth}px`
-            : `${leftWidth}px 1fr ${rightWidth}px`,
+            ? `0px 1fr ${right.size}px`
+            : `${left.size}px 1fr ${right.size}px`,
         }}
       >
         {/* Left sidebar: documents + version timeline */}
@@ -363,17 +233,18 @@ export function WorkspaceLayout({
               />
               {activeDocument && (
                 <>
-                  {/* Vertical resize handle — only shown when timeline is expanded */}
                   {!timelineCollapsed && (
                     <div
-                      onMouseDown={startResizeTimeline}
+                      role="separator"
+                      aria-orientation="horizontal"
+                      onMouseDown={timeline.startResize}
                       className="h-1 w-full shrink-0 cursor-row-resize transition-colors hover:bg-primary/40 active:bg-primary/60"
                       title="Drag to resize"
                     />
                   )}
                   <div
                     className="shrink-0 overflow-hidden"
-                    style={{ height: timelineCollapsed ? "auto" : timelineHeight }}
+                    style={{ height: timelineCollapsed ? "auto" : timeline.size }}
                   >
                     <VersionTimeline
                       documentTitle={activeDocument.title}
@@ -386,9 +257,10 @@ export function WorkspaceLayout({
                   </div>
                 </>
               )}
-              {/* Left resize handle */}
               <div
-                onMouseDown={startResizeLeft}
+                role="separator"
+                aria-orientation="vertical"
+                onMouseDown={left.startResize}
                 className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
                 title="Drag to resize"
               />
@@ -396,71 +268,23 @@ export function WorkspaceLayout({
           )}
         </aside>
 
-        {/* Center: editor / compare */}
+        {/* Center: editor / compare / preview */}
         <main className="flex min-h-0 flex-col bg-background">
-          {/* Center view tabs */}
-          <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
-            <button
-              type="button"
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
-            >
-              {sidebarCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
-            </button>
+          <CenterViewTabs
+            activeDocumentTitle={activeDocument?.title ?? null}
+            projectName={projectName}
+            centerView={centerView}
+            onCenterViewChange={setCenterView}
+            sidebarCollapsed={sidebarCollapsed}
+            onSidebarCollapsedChange={setSidebarCollapsed}
+            hasActiveDocument={!!activeDocumentId}
+          />
 
-            <span className="mr-auto truncate text-xs font-medium text-foreground">
-              {activeDocument?.title ?? projectName}
-            </span>
-
-            <div className="flex items-center gap-1">
-              {([["editor", "Document", FileText], ["compare", "Compare", GitCompareArrows], ["preview", "Preview", Eye]] as const).map(
-                ([view, label, Icon]) => (
-                  <button
-                    key={view}
-                    type="button"
-                    onClick={() => setCenterView(view)}
-                    disabled={view === "preview" && !activeDocumentId}
-                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
-                      centerView === view
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    } disabled:cursor-not-allowed disabled:opacity-40`}
-                  >
-                    <Icon size={13} />
-                    {label}
-                  </button>
-                ),
-              )}
-            </div>
-          </div>
-
-          {pendingProposals.length > 0 && (
-            <div className="flex shrink-0 items-center gap-3 border-b border-border bg-accent px-4 py-2.5">
-              <Zap size={14} className="shrink-0 text-accent-foreground" />
-              <span className="text-xs font-medium text-accent-foreground">
-                {pendingProposals.length} edit{" "}
-                {pendingProposals.length === 1 ? "proposal" : "proposals"} ready
-              </span>
-              <div className="ml-auto flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={incorporateProposals}
-                  className="rounded-md bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  Incorporate Changes
-                </button>
-                <button
-                  type="button"
-                  onClick={dismissProposals}
-                  className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  title="Dismiss proposals"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            </div>
-          )}
+          <ProposalBanner
+            count={pendingProposals.length}
+            onIncorporate={incorporateProposals}
+            onDismiss={dismissProposals}
+          />
 
           {centerView === "editor" && (
             <div className="min-h-0 flex-1">
@@ -473,6 +297,8 @@ export function WorkspaceLayout({
                 onDirtyChange={setEditorDirty}
                 onContentChange={handleContentChange}
                 editProposals={editProposals}
+                onProposalAccepted={handleProposalAccepted}
+                onProposalRejected={handleProposalRejected}
                 activeDocumentId={activeDocumentId}
                 projectId={projectId}
                 styleSettings={styleSettings}
@@ -521,9 +347,10 @@ export function WorkspaceLayout({
 
         {/* Right sidebar: chat */}
         <div className="relative flex min-h-0 flex-col border-l border-sidebar-border">
-          {/* Right resize handle — sits on the left edge of the chat panel */}
           <div
-            onMouseDown={startResizeRight}
+            role="separator"
+            aria-orientation="vertical"
+            onMouseDown={right.startResize}
             className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-10"
             title="Drag to resize"
           />

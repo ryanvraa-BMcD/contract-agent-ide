@@ -1,5 +1,5 @@
 import { AgentMode, AgentRunStatus, MessageRole } from "@prisma/client";
-import { prisma } from "@/src/lib/prisma";
+import { prisma, type TransactionClient } from "@/src/lib/prisma";
 import { getOrCreateThread } from "@/src/features/chat/actions";
 import { type PlanModeResponse } from "@/src/server/ai/schemas";
 import { buildGroundedAskContext } from "@/src/server/retrieval/build-context";
@@ -61,7 +61,7 @@ export async function runPlanMode(input: RunPlanModeInput): Promise<RunPlanModeR
   const plan = await callGeminiPlan(input.content, context.rankedChunks);
   const assistantText = renderPlanAsAssistantText(plan);
 
-  return prisma.$transaction(async (tx: any) => {
+  return prisma.$transaction(async (tx: TransactionClient) => {
     const userMessage = await tx.chatMessage.create({
       data: {
         threadId: thread.id,

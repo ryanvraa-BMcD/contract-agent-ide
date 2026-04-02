@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { X, RotateCcw, Save, Loader2 } from "lucide-react";
 import type { ProjectStyleSettings } from "@/src/types/style-settings";
 import { DEFAULT_STYLE_SETTINGS } from "@/src/types/style-settings";
@@ -132,12 +132,54 @@ export function FormatSettingsDialog({
     }));
   };
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || !dialogRef.current) return;
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    const prev = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      prev?.focus();
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="relative flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border border-border bg-card shadow-2xl">
-        {/* Header */}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Format Settings"
+        tabIndex={-1}
+        className="relative flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border border-border bg-card shadow-2xl outline-none"
+      >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3.5">
           <h2 className="text-sm font-semibold text-foreground">Format Settings</h2>
           <button

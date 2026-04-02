@@ -1,14 +1,11 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { storage } from "@/src/lib/storage";
+import { notFound, serverError } from "@/src/lib/api-helpers";
 
 export const runtime = "nodejs";
 
 type RouteContext = {
-  params: Promise<{
-    projectId: string;
-    documentId: string;
-  }>;
+  params: Promise<{ projectId: string; documentId: string }>;
 };
 
 export async function GET(_request: Request, context: RouteContext) {
@@ -19,9 +16,7 @@ export async function GET(_request: Request, context: RouteContext) {
     select: { originalStorageKey: true, originalMimeType: true },
   });
 
-  if (!document) {
-    return NextResponse.json({ error: "Document not found." }, { status: 404 });
-  }
+  if (!document) return notFound("Document");
 
   try {
     const obj = await storage.getObject({ key: document.originalStorageKey });
@@ -35,9 +30,6 @@ export async function GET(_request: Request, context: RouteContext) {
       },
     });
   } catch {
-    return NextResponse.json(
-      { error: "Failed to read document file." },
-      { status: 500 },
-    );
+    return serverError("Failed to read document file.");
   }
 }

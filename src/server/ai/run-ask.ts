@@ -1,5 +1,5 @@
 import { AgentMode, AgentRunStatus, MessageRole } from "@prisma/client";
-import { prisma } from "@/src/lib/prisma";
+import { prisma, type TransactionClient } from "@/src/lib/prisma";
 import { type AskModeResponse } from "@/src/server/ai/schemas";
 import { buildGroundedAskContext } from "@/src/server/retrieval/build-context";
 import { getOrCreateThread } from "@/src/features/chat/actions";
@@ -42,7 +42,7 @@ export async function runAskMode(input: RunAskModeInput): Promise<RunAskModeResu
 
   const validated = await callGeminiAsk(input.content, context.rankedChunks);
 
-  return prisma.$transaction(async (tx: any) => {
+  return prisma.$transaction(async (tx: TransactionClient) => {
     const userMessage = await tx.chatMessage.create({
       data: {
         threadId: thread.id,

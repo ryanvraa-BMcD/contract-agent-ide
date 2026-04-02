@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getProjectWorkspace } from "@/src/features/projects/actions";
 import { WorkspaceLayout } from "@/src/features/workspace/components/workspace-layout";
 import { parseStyleSettings } from "@/src/types/style-settings";
+import { normalizeCitations } from "@/src/types/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -20,37 +21,6 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   }
 
   const thread = project.chatThreads[0] ?? null;
-
-  const normalizeCitations = (
-    value: unknown
-  ): {
-    documentId: string;
-    versionId: string;
-    chunkId: string;
-    snippet: string;
-  }[] => {
-    if (!Array.isArray(value)) return [];
-    return value
-      .filter((item) => {
-        if (!item || typeof item !== "object") return false;
-        const candidate = item as Record<string, unknown>;
-        return (
-          typeof candidate.documentId === "string" &&
-          typeof candidate.versionId === "string" &&
-          typeof candidate.chunkId === "string" &&
-          typeof candidate.snippet === "string"
-        );
-      })
-      .map((item) => {
-        const candidate = item as {
-          documentId: string;
-          versionId: string;
-          chunkId: string;
-          snippet: string;
-        };
-        return candidate;
-      });
-  };
 
   const styleSettings = parseStyleSettings(project.styleSettings);
 
