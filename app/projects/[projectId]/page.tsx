@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getProjectWorkspace } from "@/src/features/projects/actions";
 import { WorkspaceLayout } from "@/src/features/workspace/components/workspace-layout";
+import { parseStyleSettings } from "@/src/types/style-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -51,10 +52,13 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       });
   };
 
+  const styleSettings = parseStyleSettings(project.styleSettings);
+
   return (
     <WorkspaceLayout
       projectId={project.id}
       projectName={project.name}
+      styleSettings={styleSettings}
       documents={project.documents.map((document) => ({
         id: document.id,
         title: document.title,
@@ -62,6 +66,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         originalFilename: document.originalFilename,
         originalMimeType: document.originalMimeType,
         sizeBytes: document.originalSizeBytes,
+        sortOrder: document.sortOrder,
         updatedAt: document.updatedAt.toISOString(),
         activeVersion: document.activeVersion
           ? { versionNumber: document.activeVersion.versionNumber }

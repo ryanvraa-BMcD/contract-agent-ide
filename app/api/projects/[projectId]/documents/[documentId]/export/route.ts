@@ -2,6 +2,7 @@ import { ExportJobStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { exportDocumentVersionToDocx } from "@/src/server/export/export-docx";
+import { parseStyleSettings } from "@/src/types/style-settings";
 
 type RouteContext = {
   params: Promise<{
@@ -96,6 +97,11 @@ export async function POST(request: Request, context: RouteContext) {
       },
     });
 
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { styleSettings: true },
+    });
+
     const exported = await exportDocumentVersionToDocx({
       projectId,
       documentId,
@@ -104,6 +110,7 @@ export async function POST(request: Request, context: RouteContext) {
       title: document.title,
       plainText: version.plainText,
       structuredJson: version.structuredJson,
+      styleSettings: parseStyleSettings(project?.styleSettings),
     });
 
     const completed = await prisma.exportJob.update({

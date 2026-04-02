@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Zap,
   X,
+  Settings2,
 } from "lucide-react";
 import Link from "next/link";
 import { ChatPanel } from "@/src/features/chat/components/chat-panel";
@@ -22,8 +23,10 @@ import { VersionTimeline } from "@/src/features/documents/components/version-tim
 import { DocumentEditor } from "@/src/features/editor/components/document-editor";
 import { DocumentPreview } from "@/src/features/editor/components/document-preview";
 import { ThemeToggle } from "@/src/features/workspace/components/theme-toggle";
+import { FormatSettingsDialog } from "@/src/features/workspace/components/format-settings-dialog";
 import type { ReviewProposal } from "@/src/features/review/types";
 import type { WorkspaceMode } from "@/src/lib/validation";
+import type { ProjectStyleSettings } from "@/src/types/style-settings";
 
 type WorkspaceDocument = {
   id: string;
@@ -32,6 +35,7 @@ type WorkspaceDocument = {
   originalFilename: string;
   originalMimeType: string;
   sizeBytes: number;
+  sortOrder: number;
   updatedAt: string;
   activeVersion: {
     versionNumber: number;
@@ -63,6 +67,7 @@ type WorkspaceMessage = {
 type WorkspaceLayoutProps = {
   projectId: string;
   projectName: string;
+  styleSettings: ProjectStyleSettings;
   documents: WorkspaceDocument[];
   threadId: string | null;
   initialMessages: WorkspaceMessage[];
@@ -73,6 +78,7 @@ type CenterView = "editor" | "compare" | "preview";
 export function WorkspaceLayout({
   projectId,
   projectName,
+  styleSettings,
   documents,
   threadId,
   initialMessages,
@@ -93,10 +99,77 @@ export function WorkspaceLayout({
   const [editorDirty, setEditorDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [leftWidth, setLeftWidth] = useState(280);
+  const [rightWidth, setRightWidth] = useState(380);
+  const [timelineHeight, setTimelineHeight] = useState(200);
+  const [timelineCollapsed, setTimelineCollapsed] = useState(false);
+  const [formatSettingsOpen, setFormatSettingsOpen] = useState(false);
   const editorContentRef = useRef<Record<string, unknown> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleSaveVersionRef = useRef<() => Promise<void>>(async () => {});
   const router = useRouter();
+
+  const startResizeLeft = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = leftWidth;
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.min(480, Math.max(200, startWidth + ev.clientX - startX));
+      setLeftWidth(next);
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [leftWidth]);
+
+  const startResizeRight = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = rightWidth;
+    const onMove = (ev: MouseEvent) => {
+      // Right sidebar grows leftward, so delta is inverted.
+      const next = Math.min(600, Math.max(280, startWidth - (ev.clientX - startX)));
+      setRightWidth(next);
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [rightWidth]);
+
+  const startResizeTimeline = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = timelineHeight;
+    const onMove = (ev: MouseEvent) => {
+      // Dragging up increases timeline height (delta is inverted).
+      const next = Math.min(500, Math.max(80, startHeight - (ev.clientY - startY)));
+      setTimelineHeight(next);
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [timelineHeight]);
 
   const activeDocument = documents.find((d) => d.id === activeDocumentId) ?? null;
   const activeVersion =
@@ -137,6 +210,22 @@ export function WorkspaceLayout({
   const clearSelectedDocuments = () => {
     setSelectedDocumentIds([]);
   };
+
+  const handleReorder = useCallback(
+    async (orders: { id: string; sortOrder: number }[]) => {
+      try {
+        await fetch(`/api/projects/${projectId}/documents/reorder`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orders }),
+        });
+        router.refresh();
+      } catch {
+        // silently fail — refresh will restore correct state
+      }
+    },
+    [projectId, router],
+  );
 
   const selectedDocumentTitles = documents
     .filter((d) => selectedDocumentIds.includes(d.id))
@@ -233,21 +322,29 @@ export function WorkspaceLayout({
               {isSaving ? "Saving..." : "Save Version"}
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setFormatSettingsOpen(true)}
+            title="Format Settings"
+            className="flex items-center gap-1.5 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Settings2 size={15} />
+          </button>
           <ThemeToggle />
         </div>
       </header>
 
       <div
-        className="grid min-h-0 flex-1 transition-all duration-200"
+        className="grid min-h-0 flex-1"
         style={{
           gridTemplateColumns: sidebarCollapsed
-            ? "0px 1fr 380px"
-            : "280px 1fr 380px",
+            ? `0px 1fr ${rightWidth}px`
+            : `${leftWidth}px 1fr ${rightWidth}px`,
         }}
       >
         {/* Left sidebar: documents + version timeline */}
         <aside
-          className={`relative flex h-full flex-col border-r border-sidebar-border bg-sidebar overflow-hidden transition-all duration-200 ${
+          className={`relative flex h-full flex-col border-r border-sidebar-border bg-sidebar overflow-hidden ${
             sidebarCollapsed ? "w-0" : ""
           }`}
         >
@@ -262,15 +359,39 @@ export function WorkspaceLayout({
                 onSelectDocument={handleSelectDocument}
                 onSelectAllDocuments={selectAllDocuments}
                 onClearSelectedDocuments={clearSelectedDocuments}
+                onReorder={handleReorder}
               />
               {activeDocument && (
-                <VersionTimeline
-                  documentTitle={activeDocument.title}
-                  versions={activeDocument.versions}
-                  activeVersionId={activeVersionId}
-                  onSelectVersion={handleSelectVersion}
-                />
+                <>
+                  {/* Vertical resize handle — only shown when timeline is expanded */}
+                  {!timelineCollapsed && (
+                    <div
+                      onMouseDown={startResizeTimeline}
+                      className="h-1 w-full shrink-0 cursor-row-resize transition-colors hover:bg-primary/40 active:bg-primary/60"
+                      title="Drag to resize"
+                    />
+                  )}
+                  <div
+                    className="shrink-0 overflow-hidden"
+                    style={{ height: timelineCollapsed ? "auto" : timelineHeight }}
+                  >
+                    <VersionTimeline
+                      documentTitle={activeDocument.title}
+                      versions={activeDocument.versions}
+                      activeVersionId={activeVersionId}
+                      onSelectVersion={handleSelectVersion}
+                      collapsed={timelineCollapsed}
+                      onCollapsedChange={setTimelineCollapsed}
+                    />
+                  </div>
+                </>
               )}
+              {/* Left resize handle */}
+              <div
+                onMouseDown={startResizeLeft}
+                className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
+                title="Drag to resize"
+              />
             </>
           )}
         </aside>
@@ -354,6 +475,7 @@ export function WorkspaceLayout({
                 editProposals={editProposals}
                 activeDocumentId={activeDocumentId}
                 projectId={projectId}
+                styleSettings={styleSettings}
               />
             </div>
           )}
@@ -398,19 +520,40 @@ export function WorkspaceLayout({
         </main>
 
         {/* Right sidebar: chat */}
-        <ChatPanel
-          projectId={projectId}
-          initialThreadId={threadId}
-          initialMessages={initialMessages}
-          mode={mode}
-          onModeChange={setMode}
-          selectedDocumentIds={selectedDocumentIds}
-          selectedDocumentTitles={selectedDocumentTitles}
-          documentTitleById={documentTitleById}
-          onEditProposals={setPendingProposals}
-          editProposals={editProposals}
-        />
+        <div className="relative flex min-h-0 flex-col border-l border-sidebar-border">
+          {/* Right resize handle — sits on the left edge of the chat panel */}
+          <div
+            onMouseDown={startResizeRight}
+            className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-10"
+            title="Drag to resize"
+          />
+          <ChatPanel
+            projectId={projectId}
+            initialThreadId={threadId}
+            initialMessages={initialMessages}
+            mode={mode}
+            onModeChange={setMode}
+            selectedDocumentIds={selectedDocumentIds}
+            selectedDocumentTitles={selectedDocumentTitles}
+            documentTitleById={documentTitleById}
+            onEditProposals={setPendingProposals}
+            editProposals={editProposals}
+          />
+        </div>
       </div>
+
+      <FormatSettingsDialog
+        open={formatSettingsOpen}
+        onClose={() => setFormatSettingsOpen(false)}
+        projectId={projectId}
+        documents={documents.map((d) => ({
+          id: d.id,
+          title: d.title,
+          originalMimeType: d.originalMimeType,
+        }))}
+        initialSettings={styleSettings}
+        onSaved={() => router.refresh()}
+      />
     </div>
   );
 }

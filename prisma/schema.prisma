@@ -63,11 +63,12 @@ enum DocumentRole {
 }
 
 model Project {
-  id          String      @id @default(cuid())
-  name        String
-  description String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id            String      @id @default(cuid())
+  name          String
+  description   String?
+  styleSettings Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
   documents   Document[]
   chatThreads ChatThread[]
   agentRuns   AgentRun[]
@@ -89,6 +90,7 @@ model Document {
   normalizedStorageKey String?
   normalizedSizeBytes  Int?
   normalizedChecksum   String?
+  sortOrder            Int              @default(0)
   activeVersionId      String?          @unique
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt

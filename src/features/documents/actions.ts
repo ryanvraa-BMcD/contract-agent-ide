@@ -32,7 +32,7 @@ export function isPdfFile(filename: string, mimeType: string) {
 export async function listProjectDocuments(projectId: string) {
   return prisma.document.findMany({
     where: { projectId },
-    orderBy: { updatedAt: "desc" },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: { activeVersion: true },
   });
 }

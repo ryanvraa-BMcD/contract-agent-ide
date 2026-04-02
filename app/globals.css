@@ -98,9 +98,9 @@ body {
 
 /* TipTap Editor Styles - always light (document fidelity) */
 .tiptap {
-  font-family: "Calibri", "Segoe UI", sans-serif;
-  font-size: 11pt;
-  line-height: 1.5;
+  font-family: var(--doc-font-family, "Calibri", "Segoe UI", sans-serif);
+  font-size: var(--doc-font-size, 11pt);
+  line-height: var(--doc-line-height, 1.5);
   color: #1e293b;
 }
 
@@ -109,44 +109,44 @@ body {
 }
 
 .tiptap p {
-  margin-bottom: 0.5em;
+  margin-bottom: var(--doc-p-spacing, 0.5em);
 }
 
 .tiptap h1 {
-  font-size: 24pt;
-  font-weight: 700;
+  font-size: var(--doc-h1-size, 24pt);
+  font-weight: var(--doc-h1-weight, 700);
   margin-top: 0.8em;
   margin-bottom: 0.4em;
   color: #0f172a;
 }
 
 .tiptap h2 {
-  font-size: 18pt;
-  font-weight: 700;
+  font-size: var(--doc-h2-size, 18pt);
+  font-weight: var(--doc-h2-weight, 700);
   margin-top: 0.6em;
   margin-bottom: 0.3em;
   color: #0f172a;
 }
 
 .tiptap h3 {
-  font-size: 14pt;
-  font-weight: 600;
+  font-size: var(--doc-h3-size, 14pt);
+  font-weight: var(--doc-h3-weight, 600);
   margin-top: 0.5em;
   margin-bottom: 0.25em;
   color: #0f172a;
 }
 
 .tiptap h4 {
-  font-size: 12pt;
-  font-weight: 600;
+  font-size: var(--doc-h4-size, 12pt);
+  font-weight: var(--doc-h4-weight, 600);
   margin-top: 0.4em;
   margin-bottom: 0.2em;
   color: #1e293b;
 }
 
 .tiptap h5 {
-  font-size: 11pt;
-  font-weight: 600;
+  font-size: var(--doc-h5-size, 11pt);
+  font-weight: var(--doc-h5-weight, 600);
   margin-top: 0.3em;
   margin-bottom: 0.15em;
   color: #334155;

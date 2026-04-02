@@ -1,6 +1,89 @@
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import { storage, storageKeys } from "@/src/lib/storage";
 import type { StructuredBlock } from "@/src/types/document";
+import type { ProjectStyleSettings } from "@/src/types/style-settings";
+import { DEFAULT_STYLE_SETTINGS } from "@/src/types/style-settings";
+
+function parsePtSize(val: string): number {
+  const n = parseFloat(val);
+  return isNaN(n) ? 11 : n;
+}
+
+function ptToHalfPoints(pt: number): number {
+  return Math.round(pt * 2);
+}
+
+function ptToTwips(pt: number): number {
+  return Math.round(pt * 20);
+}
+
+function pxToTwips(px: number): number {
+  return Math.round((px / 96) * 1440);
+}
+
+function buildDocStyles(ss: ProjectStyleSettings) {
+  return {
+    default: {
+      document: {
+        run: {
+          font: ss.fontFamily,
+          size: ptToHalfPoints(parsePtSize(ss.fontSize)),
+        },
+        paragraph: {
+          spacing: { after: ptToTwips(ss.paragraphSpacingAfter) },
+        },
+      },
+      heading1: {
+        run: {
+          font: ss.fontFamily,
+          size: ptToHalfPoints(parsePtSize(ss.headings.h1.fontSize)),
+          bold: ss.headings.h1.bold,
+        },
+      },
+      heading2: {
+        run: {
+          font: ss.fontFamily,
+          size: ptToHalfPoints(parsePtSize(ss.headings.h2.fontSize)),
+          bold: ss.headings.h2.bold,
+        },
+      },
+      heading3: {
+        run: {
+          font: ss.fontFamily,
+          size: ptToHalfPoints(parsePtSize(ss.headings.h3.fontSize)),
+          bold: ss.headings.h3.bold,
+        },
+      },
+      heading4: {
+        run: {
+          font: ss.fontFamily,
+          size: ptToHalfPoints(parsePtSize(ss.headings.h4.fontSize)),
+          bold: ss.headings.h4.bold,
+        },
+      },
+      heading5: {
+        run: {
+          font: ss.fontFamily,
+          size: ptToHalfPoints(parsePtSize(ss.headings.h5.fontSize)),
+          bold: ss.headings.h5.bold,
+        },
+      },
+    },
+  };
+}
+
+function buildSectionProperties(ss: ProjectStyleSettings) {
+  return {
+    page: {
+      margin: {
+        top: pxToTwips(ss.pageMargins.top),
+        right: pxToTwips(ss.pageMargins.right),
+        bottom: pxToTwips(ss.pageMargins.bottom),
+        left: pxToTwips(ss.pageMargins.left),
+      },
+    },
+  };
+}
 
 type ExportDocxInput = {
   projectId: string;
@@ -10,6 +93,7 @@ type ExportDocxInput = {
   title: string;
   plainText: string | null;
   structuredJson: unknown;
+  styleSettings?: ProjectStyleSettings;
 };
 
 type ExportDocxResult = {
@@ -91,7 +175,88 @@ function buildParagraphsFromPlainText(plainText: string | null) {
     .map((paragraph) => new Paragraph(paragraph));
 }
 
+export type CompileDocumentEntry = {
+  title: string;
+  role: string;
+  plainText: string | null;
+  structuredJson: unknown;
+};
+
+export type CompileDocxInput = {
+  projectId: string;
+  projectName: string;
+  entries: CompileDocumentEntry[];
+  styleSettings?: ProjectStyleSettings;
+};
+
+export type CompileDocxResult = {
+  outputStorageKey: string;
+  outputSizeBytes: number;
+  checksumSha256: string;
+  downloadUrl: string;
+};
+
+export async function compileDocumentsToDocx(input: CompileDocxInput): Promise<CompileDocxResult> {
+  const ss = input.styleSettings ?? DEFAULT_STYLE_SETTINGS;
+  const sectionProps = buildSectionProperties(ss);
+
+  const sections = input.entries.map((entry) => {
+    const blocks = parseStructuredBlocks(entry.structuredJson);
+    const bodyParagraphs =
+      blocks.length > 0
+        ? buildParagraphsFromStructured(blocks)
+        : buildParagraphsFromPlainText(entry.plainText);
+
+    return {
+      properties: sectionProps,
+      children: [
+        new Paragraph({
+          heading: HeadingLevel.HEADING_1,
+          children: [new TextRun({ text: entry.title, bold: true })],
+          spacing: { after: 200 },
+        }),
+        ...bodyParagraphs,
+      ],
+    };
+  });
+
+  const doc = new Document({
+    creator: "contract-agent-ide",
+    title: `${input.projectName} - Compiled`,
+    description: "Compiled contract document",
+    styles: buildDocStyles(ss),
+    sections,
+  });
+
+  const buffer = await Packer.toBuffer(doc);
+  const outputStorageKey = storageKeys.compiledArtifact({
+    projectId: input.projectId,
+    timestamp: Date.now(),
+    extension: "docx",
+  });
+
+  const stored = await storage.putObject({
+    key: outputStorageKey,
+    body: buffer,
+    contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    metadata: { projectName: input.projectName },
+  });
+
+  const downloadUrl = await storage.getSignedDownloadUrl({
+    key: outputStorageKey,
+    expiresInSeconds: 3600,
+  });
+
+  return {
+    outputStorageKey,
+    outputSizeBytes: stored.sizeBytes,
+    checksumSha256: stored.checksumSha256,
+    downloadUrl,
+  };
+}
+
 export async function exportDocumentVersionToDocx(input: ExportDocxInput): Promise<ExportDocxResult> {
+  const ss = input.styleSettings ?? DEFAULT_STYLE_SETTINGS;
   const structuredBlocks = parseStructuredBlocks(input.structuredJson);
   const exporterMode = structuredBlocks.length > 0 ? "structured_json" : "plain_text";
   const bodyParagraphs =
@@ -103,8 +268,10 @@ export async function exportDocumentVersionToDocx(input: ExportDocxInput): Promi
     creator: "contract-agent-ide",
     title: `${input.title} - Export`,
     description: "MVP exported document version",
+    styles: buildDocStyles(ss),
     sections: [
       {
+        properties: buildSectionProperties(ss),
         children: bodyParagraphs,
       },
     ],

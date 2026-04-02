@@ -11,6 +11,10 @@ import {
   Search,
   X,
   ChevronDown,
+  ChevronUp,
+  Download,
+  Loader2,
+  GripVertical,
 } from "lucide-react";
 
 type DocumentRole = "MAIN_AGREEMENT" | "EXHIBIT" | "REFERENCE";
@@ -21,6 +25,7 @@ type SidebarDocument = {
   role: DocumentRole;
   originalFilename: string;
   sizeBytes: number;
+  sortOrder: number;
   updatedAt: string;
   activeVersion: {
     versionNumber: number;
@@ -37,6 +42,7 @@ type DocumentSidebarProps = {
   onSelectAllDocuments: () => void;
   onClearSelectedDocuments: () => void;
   onUploadSuccess?: () => void;
+  onReorder?: (orders: { id: string; sortOrder: number }[]) => void;
 };
 
 const ROLE_META: Record<
@@ -78,6 +84,7 @@ export function DocumentSidebar({
   onSelectAllDocuments,
   onClearSelectedDocuments,
   onUploadSuccess,
+  onReorder,
 }: DocumentSidebarProps) {
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
@@ -90,6 +97,9 @@ export function DocumentSidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [compiling, setCompiling] = useState(false);
+  const [draggedDocId, setDraggedDocId] = useState<string | null>(null);
+  const [dragOverDocId, setDragOverDocId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const droppedFileRef = useRef<File | null>(null);
   const dragCounterRef = useRef(0);
@@ -184,6 +194,9 @@ export function DocumentSidebar({
   };
 
   const handleDragEnter = (e: DragEvent) => {
+    // Only activate the file-upload overlay for actual file drags, not
+    // the internal document reorder drags.
+    if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
     dragCounterRef.current++;
@@ -193,11 +206,13 @@ export function DocumentSidebar({
   };
 
   const handleDragOver = (e: DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
   };
 
   const handleDragLeave = (e: DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
     dragCounterRef.current--;
@@ -208,6 +223,7 @@ export function DocumentSidebar({
   };
 
   const handleDrop = async (e: DragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
     dragCounterRef.current = 0;
@@ -251,6 +267,109 @@ export function DocumentSidebar({
     }
   };
 
+  // Reorders by assigning fresh sequential sortOrders (0, 1, 2...) to the
+  // full group after the move. This avoids the "all docs have sortOrder 0"
+  // problem where swapping equal values has no effect.
+  const reorderGroup = (newOrder: SidebarDocument[]) => {
+    if (!onReorder) return;
+    onReorder(newOrder.map((d, i) => ({ id: d.id, sortOrder: i })));
+  };
+
+  const handleMoveUp = (doc: SidebarDocument, docsInGroup: SidebarDocument[]) => {
+    const idx = docsInGroup.findIndex((d) => d.id === doc.id);
+    if (idx <= 0) return;
+    const newOrder = [...docsInGroup];
+    [newOrder[idx - 1], newOrder[idx]] = [newOrder[idx], newOrder[idx - 1]];
+    reorderGroup(newOrder);
+  };
+
+  const handleMoveDown = (doc: SidebarDocument, docsInGroup: SidebarDocument[]) => {
+    const idx = docsInGroup.findIndex((d) => d.id === doc.id);
+    if (idx < 0 || idx >= docsInGroup.length - 1) return;
+    const newOrder = [...docsInGroup];
+    [newOrder[idx], newOrder[idx + 1]] = [newOrder[idx + 1], newOrder[idx]];
+    reorderGroup(newOrder);
+  };
+
+  const handleDocDragStart = (e: DragEvent, docId: string) => {
+    setDraggedDocId(docId);
+    e.dataTransfer.effectAllowed = "move";
+    // Use a plain text payload so the file-upload handlers can distinguish
+    // this from a real file drag via types.includes("Files").
+    e.dataTransfer.setData("text/plain", docId);
+  };
+
+  const handleDocDragOver = (e: DragEvent, docId: string) => {
+    if (!draggedDocId || draggedDocId === docId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverDocId(docId);
+  };
+
+  const handleDocDrop = (e: DragEvent, targetDoc: SidebarDocument, docsInGroup: SidebarDocument[]) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverDocId(null);
+    if (!draggedDocId || draggedDocId === targetDoc.id) {
+      setDraggedDocId(null);
+      return;
+    }
+    const fromIdx = docsInGroup.findIndex((d) => d.id === draggedDocId);
+    const toIdx = docsInGroup.findIndex((d) => d.id === targetDoc.id);
+    if (fromIdx === -1 || toIdx === -1) {
+      setDraggedDocId(null);
+      return;
+    }
+    const newOrder = [...docsInGroup];
+    const [moved] = newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, moved);
+    reorderGroup(newOrder);
+    setDraggedDocId(null);
+  };
+
+  const handleDocDragEnd = () => {
+    setDraggedDocId(null);
+    setDragOverDocId(null);
+  };
+
+  const handleCompile = async () => {
+    const compilableDocs = documents.filter(
+      (d) => d.role === "MAIN_AGREEMENT" || d.role === "EXHIBIT",
+    );
+    if (compilableDocs.length === 0) return;
+
+    setCompiling(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/projects/${projectId}/compile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentIds: compilableDocs.map((d) => d.id) }),
+      });
+      if (!response.ok) {
+        const body = (await response.json()) as { error?: string };
+        throw new Error(body.error || "Compilation failed.");
+      }
+      const result = (await response.json()) as { downloadUrl: string };
+      const link = document.createElement("a");
+      link.href = result.downloadUrl;
+      link.download = "compiled-contract.docx";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (compileError) {
+      setError(
+        compileError instanceof Error ? compileError.message : "Compilation failed.",
+      );
+    } finally {
+      setCompiling(false);
+    }
+  };
+
+  const compilableCount = documents.filter(
+    (d) => d.role === "MAIN_AGREEMENT" || d.role === "EXHIBIT",
+  ).length;
+
   const groupedDocuments = ROLE_ORDER.map((role) => ({
     role,
     meta: ROLE_META[role],
@@ -271,19 +390,33 @@ export function DocumentSidebar({
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Documents
           </h2>
-          <button
-            type="button"
-            onClick={() => setUploadExpanded(!uploadExpanded)}
-            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-              uploadExpanded
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-            }`}
-            title="Upload document"
-          >
-            <Plus size={14} />
-            <span>Upload</span>
-          </button>
+          <div className="flex items-center gap-1">
+            {compilableCount > 0 && (
+              <button
+                type="button"
+                onClick={handleCompile}
+                disabled={compiling}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground disabled:opacity-60"
+                title="Compile & export all agreements and exhibits as one DOCX"
+              >
+                {compiling ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                <span>{compiling ? "Compiling..." : "Compile"}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setUploadExpanded(!uploadExpanded)}
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                uploadExpanded
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              }`}
+              title="Upload document"
+            >
+              <Plus size={14} />
+              <span>Upload</span>
+            </button>
+          </div>
         </div>
         <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
           <span>
@@ -451,12 +584,28 @@ export function DocumentSidebar({
                   <span>{docs.length}</span>
                 </h3>
                 <ul className="space-y-0.5">
-                  {docs.map((doc) => {
+                  {docs.map((doc, docIndex) => {
                     const isActive = doc.id === activeDocumentId;
                     const isInContext = selectedSet.has(doc.id);
                     const isConfirming = confirmDelete === doc.id;
+                    const isFirst = docIndex === 0;
+                    const isLast = docIndex === docs.length - 1;
+                    const isDragTarget = dragOverDocId === doc.id && draggedDocId !== doc.id;
+                    const isDraggingThis = draggedDocId === doc.id;
                     return (
-                      <li key={doc.id} className="group relative">
+                      <li
+                        key={doc.id}
+                        className={`group relative transition-opacity ${isDraggingThis ? "opacity-40" : ""}`}
+                        onDragOver={(e) => handleDocDragOver(e, doc.id)}
+                        onDrop={(e) => handleDocDrop(e, doc, docs)}
+                        onDragLeave={() => {
+                          if (dragOverDocId === doc.id) setDragOverDocId(null);
+                        }}
+                      >
+                        {/* Drop indicator line */}
+                        {isDragTarget && (
+                          <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 rounded-full bg-primary" />
+                        )}
                         {isConfirming ? (
                           <div className="flex items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-2">
                             <p className="flex-1 text-xs text-destructive">Delete this document?</p>
@@ -477,70 +626,116 @@ export function DocumentSidebar({
                             </button>
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => onSelectDocument(doc.id)}
-                            className={`w-full rounded-md px-2.5 py-2 text-left transition-colors ${
-                              isActive
-                                ? "bg-accent ring-1 ring-primary/20"
-                                : "hover:bg-sidebar-accent"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span
-                                role="checkbox"
-                                aria-checked={isInContext}
-                                tabIndex={0}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onToggleDocumentSelection(doc.id);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === " " || e.key === "Enter") {
-                                    e.preventDefault();
+                          <div className="flex items-center">
+                            {/* Grip handle — only shown when reorder is available */}
+                            {docs.length > 1 && onReorder && (
+                              <div
+                                draggable
+                                onDragStart={(e) => handleDocDragStart(e, doc.id)}
+                                onDragEnd={handleDocDragEnd}
+                                className="flex shrink-0 cursor-grab items-center pl-1 pr-0.5 text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
+                                title="Drag to reorder"
+                              >
+                                <GripVertical size={13} />
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onSelectDocument(doc.id)}
+                              className={`min-w-0 flex-1 rounded-md py-2 text-left transition-colors ${
+                                docs.length > 1 && onReorder ? "pl-1 pr-2.5" : "px-2.5"
+                              } ${
+                                isActive
+                                  ? "bg-accent ring-1 ring-primary/20"
+                                  : "hover:bg-sidebar-accent"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span
+                                  role="checkbox"
+                                  aria-checked={isInContext}
+                                  tabIndex={0}
+                                  onClick={(e) => {
                                     e.stopPropagation();
                                     onToggleDocumentSelection(doc.id);
-                                  }
-                                }}
-                                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                                  isInContext
-                                    ? "border-primary bg-primary"
-                                    : "border-input bg-card"
-                                }`}
-                              >
-                                {isInContext && <Check size={10} className="text-primary-foreground" />}
-                              </span>
-                              <FileText size={14} className="shrink-0 text-muted-foreground" />
-                              <div className="min-w-0 flex-1">
-                                <p
-                                  className={`truncate text-xs font-medium ${
-                                    isActive ? "text-accent-foreground" : "text-card-foreground"
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === " " || e.key === "Enter") {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      onToggleDocumentSelection(doc.id);
+                                    }
+                                  }}
+                                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                                    isInContext
+                                      ? "border-primary bg-primary"
+                                      : "border-input bg-card"
                                   }`}
                                 >
-                                  {doc.title}
-                                </p>
-                                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                                  <span>v{doc.activeVersion?.versionNumber ?? "?"}</span>
-                                  <span className="opacity-50">|</span>
-                                  <span>{formatSize(doc.sizeBytes)}</span>
+                                  {isInContext && <Check size={10} className="text-primary-foreground" />}
+                                </span>
+                                <FileText size={14} className="shrink-0 text-muted-foreground" />
+                                <div className="min-w-0 flex-1">
+                                  <p
+                                    className={`truncate text-xs font-medium ${
+                                      isActive ? "text-accent-foreground" : "text-card-foreground"
+                                    }`}
+                                  >
+                                    {doc.title}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                    <span>v{doc.activeVersion?.versionNumber ?? "?"}</span>
+                                    <span className="opacity-50">|</span>
+                                    <span>{formatSize(doc.sizeBytes)}</span>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </button>
+                            </button>
+                          </div>
                         )}
                         {!isConfirming && (
-                          <button
-                            type="button"
-                            disabled={deleting === doc.id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConfirmDelete(doc.id);
-                            }}
-                            className="absolute right-1.5 top-1.5 hidden rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive group-hover:block"
-                            title="Remove document"
-                          >
-                            <Trash2 size={12} />
-                          </button>
+                          <div className="absolute right-1.5 top-1/2 -translate-y-1/2 hidden items-center gap-0.5 group-hover:flex">
+                            {docs.length > 1 && onReorder && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={isFirst}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMoveUp(doc, docs);
+                                  }}
+                                  className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30"
+                                  title="Move up"
+                                >
+                                  <ChevronUp size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isLast}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMoveDown(doc, docs);
+                                  }}
+                                  className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30"
+                                  title="Move down"
+                                >
+                                  <ChevronDown size={12} />
+                                </button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              disabled={deleting === doc.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmDelete(doc.id);
+                              }}
+                              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                              title="Remove document"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         )}
                       </li>
                     );

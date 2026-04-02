@@ -19,6 +19,7 @@ import {
   TrackDeletion,
 } from "@/src/features/editor/extensions/track-changes";
 import type { ReviewProposal } from "@/src/features/review/types";
+import type { ProjectStyleSettings } from "@/src/types/style-settings";
 
 type DocumentEditorProps = {
   content: Record<string, unknown> | string | null;
@@ -29,6 +30,7 @@ type DocumentEditorProps = {
   onProposalRejected?: (proposalTitle: string) => void;
   activeDocumentId?: string | null;
   projectId?: string;
+  styleSettings?: ProjectStyleSettings;
 };
 
 export function DocumentEditor({
@@ -40,8 +42,12 @@ export function DocumentEditor({
   onProposalRejected,
   activeDocumentId,
   projectId,
+  styleSettings,
 }: DocumentEditorProps) {
   const appliedProposalsRef = useRef<Set<string>>(new Set());
+  // Suppresses onUpdate during programmatic setContent/clearContent so loading
+  // a document or switching versions does not trigger the auto-save timer.
+  const isLoadingContentRef = useRef(false);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -85,6 +91,7 @@ export function DocumentEditor({
       },
     },
     onUpdate: ({ editor: ed }) => {
+      if (isLoadingContentRef.current) return;
       onDirtyChange?.(true);
       onContentChange?.(ed.getJSON() as Record<string, unknown>);
     },
@@ -95,11 +102,13 @@ export function DocumentEditor({
 
   useEffect(() => {
     if (!editor) return;
+    isLoadingContentRef.current = true;
     if (!content) {
       editor.commands.clearContent();
-      return;
+    } else {
+      editor.commands.setContent(content);
     }
-    editor.commands.setContent(content);
+    isLoadingContentRef.current = false;
     onDirtyChange?.(false);
     appliedProposalsRef.current.clear();
   }, [editor, content, onDirtyChange]);
@@ -187,7 +196,7 @@ export function DocumentEditor({
     <div className="flex h-full flex-col">
       <EditorToolbar editor={editor} activeDocumentId={activeDocumentId} projectId={projectId} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <EditorPage>
+        <EditorPage styleSettings={styleSettings}>
           <EditorContent editor={editor} />
         </EditorPage>
       </div>

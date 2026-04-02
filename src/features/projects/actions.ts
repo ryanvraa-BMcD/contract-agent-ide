@@ -35,7 +35,7 @@ export async function getProjectWorkspace(projectId: string) {
     where: { id: projectId },
     include: {
       documents: {
-        orderBy: { updatedAt: "desc" },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
         include: {
           activeVersion: true,
           versions: {

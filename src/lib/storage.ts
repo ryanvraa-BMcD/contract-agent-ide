@@ -166,4 +166,11 @@ export const storageKeys = {
   }) {
     return `projects/${params.projectId}/documents/${params.documentId}/exports/${params.exportJobId}.${params.extension}`;
   },
+  compiledArtifact(params: {
+    projectId: string;
+    timestamp: number;
+    extension: "docx";
+  }) {
+    return `projects/${params.projectId}/compiled/${params.timestamp}.${params.extension}`;
+  },
 };
